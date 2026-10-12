@@ -42,6 +42,9 @@ html, body {
   background: var(--bg-gradient);
   perspective: 2600px;
   overflow: hidden;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Microtextura ambiental de madera noble / escritorio oscuro */
@@ -71,6 +74,7 @@ html, body {
   transform-origin: center center;
   will-change: transform;
   transition: transform 0.08s ease-out;
+  touch-action: manipulation;
   z-index: 1;
 }
 
@@ -283,15 +287,16 @@ html, body {
   background-color: var(--paper-bg);
 }
 
-/* Canvas del PDF */
+/* Canvas del PDF en máxima resolución y fidelidad vectorial */
 .page-canvas {
   width: 100%;
   height: 100%;
-  object-fit: contain;
   display: block;
   user-select: none;
+  -webkit-user-select: none;
   pointer-events: none;
   z-index: 1;
+  image-rendering: auto;
 }
 
 /* ==========================================================================
@@ -740,13 +745,8 @@ body.is-fullscreen .fullscreen-toggle-btn .icon-compress {
 }
 
 .page-content {
-  contain: layout paint;
+  contain: layout;
   transform: translateZ(0);
-}
-
-.page-canvas {
-  contain: strict;
-  image-rendering: -webkit-optimize-contrast;
 }
 
 /* ==========================================================================

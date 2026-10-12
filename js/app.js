@@ -31,6 +31,7 @@
   let resizeTimeout = null;
   let currentFlipDirection = 'forward';
   let lastKnownPageIndex = 0;
+  let currentPdfSource = 'libro.pdf';
 
   // Estado del sistema de zoom y paneo
   let zoomScale = 1.0;
@@ -155,10 +156,17 @@
     const start = Math.max(1, centerPage - radius);
     const end = Math.min(total, centerPage + radius);
 
-    for (let p = start; p <= end; p++) {
+    // Priorizar pliego central visible y después adyacentes
+    const pagesToRender = [centerPage];
+    for (let i = 1; i <= radius; i++) {
+      if (centerPage + i <= end) pagesToRender.push(centerPage + i);
+      if (centerPage - i >= start) pagesToRender.push(centerPage - i);
+    }
+
+    for (const p of pagesToRender) {
       const canvas = document.getElementById(`canvas-page-${p}`);
       if (canvas) {
-        await window.pdfBookLoader.renderPageToCanvas(
+        window.pdfBookLoader.renderPageToCanvas(
           p,
           canvas,
           bookConfig.pageWidth,
@@ -290,6 +298,7 @@
    */
   async function initBook(source = 'libro.pdf') {
     try {
+      currentPdfSource = source;
       loader.classList.remove('is-hidden');
       if (loaderProgressBar) loaderProgressBar.style.width = '5%';
       if (loaderStatusText) loaderStatusText.textContent = 'Conectando con el libro...';
@@ -335,6 +344,7 @@
 
       // 6. Instanciar StPageFlip con configuración hiperrealista
       pageFlipInstance = new St.PageFlip(bookElement, {
+        startPage: lastKnownPageIndex || 0,
         width: dimensions.pageWidth,
         height: dimensions.pageHeight,
         size: 'fixed',
@@ -384,9 +394,9 @@
 
         updatePhysicalThickness(currentPage, pdfMeta.numPages);
 
-        // Optimización bajos recursos: liberar memoria VRAM de páginas alejadas
+        // Preservar memoria en documentos largos sin afectar páginas del visor
         if (window.pdfBookLoader && window.pdfBookLoader.evictDistantPages) {
-          window.pdfBookLoader.evictDistantPages(currentPage, 4);
+          window.pdfBookLoader.evictDistantPages(currentPage, 8);
         }
 
         renderPageRange(currentPage + 1, 3);
@@ -476,12 +486,20 @@
         e.preventDefault();
         if (pageFlipInstance) pageFlipInstance.flipPrev();
       });
+      edgeLeft.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
     }
 
     if (edgeRight) {
       edgeRight.addEventListener('click', (e) => {
         e.preventDefault();
         if (pageFlipInstance) pageFlipInstance.flipNext();
+      });
+      edgeRight.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
       });
     }
   }
@@ -524,15 +542,25 @@
       }
     }, { passive: false });
 
-    // Doble clic para restablecer o ampliar zoom
+    // Desactivar zoom al dar doble clic: nunca debe ampliar por doble clic
     viewport.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Si por alguna razón estaba ampliado (por scroll con rueda), restablecer a tamaño normal 1x
       if (zoomScale > 1.05) {
         resetZoom();
-      } else {
-        zoomScale = 1.8;
-        applyTransform();
       }
     });
+
+    if (bookWrapper) {
+      bookWrapper.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (zoomScale > 1.05) {
+          resetZoom();
+        }
+      });
+    }
 
     // Paneo con ratón al estar ampliado
     viewport.addEventListener('mousedown', (e) => {
@@ -636,8 +664,8 @@
 
         const newDims = calculateOptimalBookDimensions(bookConfig.aspectRatio);
         if (newDims.pageWidth !== bookConfig.pageWidth || newDims.pageHeight !== bookConfig.pageHeight) {
-          // Re-inicializar el tamaño si cambia sustancialmente
-          initBook('libro.pdf');
+          // Re-inicializar el tamaño si cambia sustancialmente manteniendo la página actual
+          initBook(currentPdfSource);
         }
       }, 350);
     });
