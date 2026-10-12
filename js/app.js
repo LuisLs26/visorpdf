@@ -21,6 +21,8 @@
   const bookHardcoverBase = document.getElementById('book-hardcover-base');
   const bookSpineCreaseShadow = document.getElementById('book-spine-crease-shadow');
   const hardcoverSpineHead = document.querySelector('.hardcover-spine-head');
+  const hardcoverSpineTail = document.querySelector('.hardcover-spine-tail');
+
   // Estado del visor
   let pageFlipInstance = null;
   let bookConfig = null;
