@@ -104,7 +104,44 @@ class PDFBookLoader {
   }
 
   /**
-   * Renderiza una página específica en un elemento Canvas con resolución Retina / HiDPI
+   * Determina el factor de escala de resolución óptimo según la potencia del dispositivo
+   */
+  getOptimalDpr() {
+    const isLowEnd = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+                     (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+                     (window.innerWidth < 800);
+    const maxDpr = isLowEnd ? 1.25 : 1.75;
+    return Math.min(window.devicePixelRatio || 1, maxDpr);
+  }
+
+  /**
+   * Libera memoria VRAM de páginas alejadas en dispositivos con recursos limitados
+   */
+  evictDistantPages(currentPage, keepRadius = 4) {
+    if (this.renderedPages.size < 8) return;
+
+    const isLowEnd = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+                     (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+                     (window.innerWidth < 800);
+    const maxAllowed = isLowEnd ? 8 : 14;
+
+    if (this.renderedPages.size <= maxAllowed) return;
+
+    for (const key of Array.from(this.renderedPages)) {
+      const pageNum = parseInt(key.split('-')[0], 10);
+      if (Math.abs(pageNum - currentPage) > keepRadius) {
+        const canvas = document.getElementById(`canvas-page-${pageNum}`);
+        if (canvas) {
+          canvas.width = 1;
+          canvas.height = 1;
+        }
+        this.renderedPages.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Renderiza una página específica en un elemento Canvas con resolución optimizada
    */
   async renderPageToCanvas(pageNumber, canvas, displayWidth, displayHeight) {
     if (!this.pdfDoc || pageNumber < 1 || pageNumber > this.numPages) return;
@@ -129,12 +166,12 @@ class PDFBookLoader {
     try {
       const page = await this.pdfDoc.getPage(pageNumber);
 
-      // Multiplicador de nitidez (HiDPI / Retina)
-      const dpr = Math.min(window.devicePixelRatio || 1, 2.2);
+      // DPR inteligente adaptado a la GPU del dispositivo
+      const dpr = this.getOptimalDpr();
       const targetWidth = displayWidth || this.pageWidth;
       const targetHeight = displayHeight || this.pageHeight;
 
-      // Escala requerida para encajar en el tamaño deseado con alta nitidez
+      // Escala requerida para encajar en el tamaño deseado con alta nitidez y bajo consumo
       const scale = (targetWidth / page.getViewport({ scale: 1 }).width) * dpr;
       const viewport = page.getViewport({ scale });
 
@@ -143,9 +180,9 @@ class PDFBookLoader {
       canvas.style.width = '100%';
       canvas.style.height = '100%';
 
-      const ctx = canvas.getContext('2d', { alpha: false });
+      const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
       ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
+      ctx.imageSmoothingQuality = dpr > 1.4 ? 'high' : 'medium';
 
       // Fondo blanco inicial antes de renderizar vectores
       ctx.fillStyle = '#ffffff';

@@ -1,16 +1,14 @@
 /* ==========================================================================
-   VISOR LIBRO - ESTILOS INMERSIVOS Y REALISMO FÍSICO 3D
+   VISOR LIBRO - MÁXIMO REALISMO FÍSICO 3D Y ACÚSTICA INMERSIVA
    ========================================================================== */
 
 :root {
-  --bg-gradient: radial-gradient(circle at 50% 50%, #1e2026 0%, #131418 55%, #08090b 100%);
-  --paper-bg: #faf9f6;
-  --spine-shadow-color: rgba(0, 0, 0, 0.32);
-  --spine-crease-width: 48px;
-  --page-curl-opacity: 0.05;
-  --book-shadow: 0 30px 80px -12px rgba(0, 0, 0, 0.8),
-                 0 15px 35px -8px rgba(0, 0, 0, 0.6),
-                 0 0 120px rgba(0, 0, 0, 0.45);
+  --bg-gradient: radial-gradient(ellipse at 50% 35%, #242730 0%, #14161a 50%, #090a0d 100%);
+  --paper-bg: #faf8f5;
+  --spine-crease-width: 68px;
+  --book-shadow-ambient: 0 40px 90px -15px rgba(0, 0, 0, 0.85),
+                         0 20px 45px -10px rgba(0, 0, 0, 0.70),
+                         0 0 130px rgba(0, 0, 0, 0.50);
 }
 
 *, *::before, *::after {
@@ -24,13 +22,16 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #08090b;
+  background: #08090c;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* Escenario ambiental */
+/* ==========================================================================
+   ESCENARIO AMBIENTAL (MESA DE ESTUDIO CON LUZ CENITAL SUAVE)
+   ========================================================================== */
+
 .viewport-stage {
   position: relative;
   width: 100vw;
@@ -39,11 +40,27 @@ html, body {
   align-items: center;
   justify-content: center;
   background: var(--bg-gradient);
-  perspective: 2500px;
+  perspective: 2600px;
   overflow: hidden;
 }
 
-/* Contenedor de zoom y paneo interactivo */
+/* Microtextura ambiental de madera noble / escritorio oscuro */
+.viewport-stage::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.04) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ==========================================================================
+   CONTENEDOR DE ZOOM Y PANEO
+   ========================================================================== */
+
 .zoom-container {
   position: relative;
   width: 100%;
@@ -54,6 +71,7 @@ html, body {
   transform-origin: center center;
   will-change: transform;
   transition: transform 0.08s ease-out;
+  z-index: 1;
 }
 
 .zoom-container.is-zoomed {
@@ -64,7 +82,10 @@ html, body {
   cursor: grabbing;
 }
 
-/* Envoltorio del libro físico */
+/* ==========================================================================
+   ENVOLTORIO DEL LIBRO FÍSICO Y ELEMENTOS SKEUOMÓRFICOS
+   ========================================================================== */
+
 .book-wrapper {
   position: relative;
   display: flex;
@@ -73,15 +94,15 @@ html, body {
   will-change: transform;
 }
 
-/* Sombra ambiental de contacto */
+/* Sombra ambiental de contacto sobre la mesa */
 .book-ambient-shadow {
   position: absolute;
   top: 3%;
   left: -2%;
   width: 104%;
   height: 97%;
-  box-shadow: var(--book-shadow);
-  border-radius: 6px;
+  box-shadow: var(--book-shadow-ambient);
+  border-radius: 8px;
   pointer-events: none;
   z-index: 0;
   transition: left 0.4s cubic-bezier(0.25, 1, 0.5, 1),
@@ -89,52 +110,155 @@ html, body {
               opacity 0.4s ease;
 }
 
-/* Espesor físico lateral (bloque de hojas apiladas) */
-.book-side-thickness {
+/* Sombra central del lomo en contacto con la mesa */
+.book-spine-crease-shadow {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
-  width: 10px;
+  top: 1%;
+  left: 50%;
+  width: 28px;
+  height: 98%;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 90%);
+  filter: blur(4px);
   pointer-events: none;
   z-index: 1;
-  opacity: 0.85;
+  opacity: 0.9;
+  transition: opacity 0.4s ease;
+}
+
+/* ==========================================================================
+   BASE DE TAPA DURA (CARCASA QUE SOBRESALE DEL PAPEL - CEJA DE LA TAPA)
+   ========================================================================== */
+
+.book-hardcover-base {
+  position: absolute;
+  top: -5px;
+  left: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 10px);
+  background: linear-gradient(135deg, #1b1d22 0%, #111215 50%, #0d0e11 100%);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+              inset 0 1px 2px rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  z-index: 1;
+  transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Cabezada bordada tradicional (tela visible en los extremos superior e inferior del lomo) */
+.hardcover-spine-head,
+.hardcover-spine-tail {
+  position: absolute;
+  left: 50%;
+  width: 26px;
+  height: 5px;
+  transform: translateX(-50%);
+  background: repeating-linear-gradient(
+    to right,
+    #9c2727 0px,
+    #9c2727 2px,
+    #f1dfa8 2px,
+    #f1dfa8 4px
+  );
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  z-index: 2;
+  transition: opacity 0.4s ease;
+}
+
+.hardcover-spine-head {
+  top: -2px;
+}
+
+.hardcover-spine-tail {
+  bottom: -2px;
+}
+
+/* ==========================================================================
+   BLOQUES Y CANTOS DE HOJAS FÍSICAS (PÁGINAS APILADAS CON PERSPECTIVA)
+   ========================================================================== */
+
+/* Cantos superior e inferior del bloque de hojas */
+.book-edge-stack {
+  position: absolute;
+  left: 2px;
+  width: calc(100% - 4px);
+  height: 4px;
+  background: repeating-linear-gradient(
+    to right,
+    #ded7c9 0px,
+    #c5baa7 1px,
+    #efeae0 2px,
+    #bbb09e 3px
+  );
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3) inset;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.9;
+}
+
+.book-edge-top {
+  top: -3px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(to right, #ccc4b4 0%, #eee8dc 45%, #9c917f 50%, #eee8dc 55%, #ccc4b4 100%);
+}
+
+.book-edge-bottom {
+  bottom: -3px;
+  border-radius: 0 0 2px 2px;
+  background: linear-gradient(to right, #ccc4b4 0%, #eee8dc 45%, #9c917f 50%, #eee8dc 55%, #ccc4b4 100%);
+}
+
+/* Espesor lateral (fore-edge con páginas apiladas y sombra 3D) */
+.book-side-thickness {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 12px;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0.92;
+  transition: opacity 0.3s ease, width 0.3s ease;
 }
 
 .book-thickness-left {
-  left: -9px;
+  left: -11px;
   background: repeating-linear-gradient(
     to bottom,
-    #ddd6c7 0px,
-    #b8ad9b 1px,
-    #ebe6dc 2px,
-    #c4b9a8 3px
+    #f2ede4 0px,
+    #d1c6b5 1px,
+    #e8e1d5 2px,
+    #b9ac98 3px
   );
-  box-shadow: -3px 0 6px rgba(0, 0, 0, 0.4) inset,
-              -5px 4px 10px rgba(0, 0, 0, 0.5);
+  box-shadow: -4px 0 8px rgba(0, 0, 0, 0.45) inset,
+              -6px 6px 14px rgba(0, 0, 0, 0.6);
   border-radius: 3px 0 0 3px;
-  transform: perspective(600px) rotateY(15deg);
+  transform: perspective(600px) rotateY(18deg);
 }
 
 .book-thickness-right {
-  right: -9px;
+  right: -11px;
   background: repeating-linear-gradient(
     to bottom,
-    #ddd6c7 0px,
-    #b8ad9b 1px,
-    #ebe6dc 2px,
-    #c4b9a8 3px
+    #f2ede4 0px,
+    #d1c6b5 1px,
+    #e8e1d5 2px,
+    #b9ac98 3px
   );
-  box-shadow: 3px 0 6px rgba(0, 0, 0, 0.4) inset,
-              5px 4px 10px rgba(0, 0, 0, 0.5);
+  box-shadow: 4px 0 8px rgba(0, 0, 0, 0.45) inset,
+              6px 6px 14px rgba(0, 0, 0, 0.6);
   border-radius: 0 3px 3px 0;
-  transform: perspective(600px) rotateY(-15deg);
+  transform: perspective(600px) rotateY(-18deg);
 }
 
-/* Contenedor central de StPageFlip */
+/* ==========================================================================
+   CONTENEDOR CENTRAL DE STPAGEFLIP
+   ========================================================================== */
+
 .book-flip-container {
   position: relative;
-  z-index: 2;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  z-index: 4;
 }
 
 /* ==========================================================================
@@ -145,7 +269,7 @@ html, body {
   position: absolute;
   background-color: var(--paper-bg);
   overflow: hidden;
-  box-shadow: 0 0 1px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.2);
 }
 
 .page-content {
@@ -159,7 +283,7 @@ html, body {
   background-color: var(--paper-bg);
 }
 
-/* Canvas de renderizado nítido de PDF.js */
+/* Canvas del PDF */
 .page-canvas {
   width: 100%;
   height: 100%;
@@ -167,13 +291,30 @@ html, body {
   display: block;
   user-select: none;
   pointer-events: none;
+  z-index: 1;
 }
 
 /* ==========================================================================
-   SOMBRAS REALISTAS DEL LOMO Y CURVATURA DE PAPEL
+   TEXTURA DE PAPEL TÁCTIL Y GRANO ÓPTICO (MIX-BLEND MULTIPLY)
    ========================================================================== */
 
-/* Sombra y curvatura del lomo en la página izquierda */
+.page-paper-grain {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(255, 255, 255, 0.05) 0%, rgba(0, 0, 0, 0.02) 100%);
+  pointer-events: none;
+  z-index: 8;
+  mix-blend-mode: multiply;
+}
+
+/* ==========================================================================
+   SOMBRAS PROFUNDAS DEL LOMO (CANALÓN CENTRAL) Y ARCO DE PAPEL
+   ========================================================================== */
+
+/* Sombra profunda y tangible del canalón en la página izquierda */
 .page.--left .page-spine-shadow {
   position: absolute;
   top: 0;
@@ -183,16 +324,17 @@ html, body {
   background: linear-gradient(
     to right,
     rgba(0, 0, 0, 0) 0%,
-    rgba(0, 0, 0, 0.03) 40%,
-    rgba(0, 0, 0, 0.12) 80%,
-    rgba(0, 0, 0, 0.28) 96%,
-    rgba(0, 0, 0, 0.38) 100%
+    rgba(0, 0, 0, 0.03) 45%,
+    rgba(0, 0, 0, 0.10) 75%,
+    rgba(0, 0, 0, 0.26) 92%,
+    rgba(0, 0, 0, 0.44) 98%,
+    rgba(0, 0, 0, 0.52) 100%
   );
   pointer-events: none;
-  z-index: 10;
+  z-index: 12;
 }
 
-/* Sombra y curvatura del lomo en la página derecha */
+/* Sombra profunda y tangible del canalón en la página derecha */
 .page.--right .page-spine-shadow {
   position: absolute;
   top: 0;
@@ -202,16 +344,52 @@ html, body {
   background: linear-gradient(
     to left,
     rgba(0, 0, 0, 0) 0%,
-    rgba(0, 0, 0, 0.03) 40%,
-    rgba(0, 0, 0, 0.12) 80%,
-    rgba(0, 0, 0, 0.28) 96%,
-    rgba(0, 0, 0, 0.38) 100%
+    rgba(0, 0, 0, 0.03) 45%,
+    rgba(0, 0, 0, 0.10) 75%,
+    rgba(0, 0, 0, 0.26) 92%,
+    rgba(0, 0, 0, 0.44) 98%,
+    rgba(0, 0, 0, 0.52) 100%
   );
   pointer-events: none;
-  z-index: 10;
+  z-index: 12;
 }
 
-/* Reflejo y ondulación de luz en el arco de apertura del papel */
+/* Reflejo cilíndrico en el arco curvado de la hoja junto al lomo */
+.page.--left .page-curl-arch {
+  position: absolute;
+  top: 0;
+  right: calc(var(--spine-crease-width) * 0.85);
+  bottom: 0;
+  width: 48px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0.10) 80%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 11;
+}
+
+.page.--right .page-curl-arch {
+  position: absolute;
+  top: 0;
+  left: calc(var(--spine-crease-width) * 0.85);
+  bottom: 0;
+  width: 48px;
+  background: linear-gradient(
+    to left,
+    transparent 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0.10) 80%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 11;
+}
+
+/* Iluminación cenital y caída de luz a lo largo del pliego */
 .page.--left .page-lighting-glow {
   position: absolute;
   top: 0;
@@ -220,10 +398,9 @@ html, body {
   bottom: 0;
   background: linear-gradient(
     to right,
-    rgba(255, 255, 255, 0.04) 0%,
-    rgba(255, 255, 255, 0.01) 40%,
-    rgba(0, 0, 0, 0.02) 85%,
-    transparent 100%
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(255, 255, 255, 0.01) 60%,
+    rgba(0, 0, 0, 0.015) 100%
   );
   pointer-events: none;
   z-index: 9;
@@ -237,25 +414,50 @@ html, body {
   bottom: 0;
   background: linear-gradient(
     to left,
-    rgba(255, 255, 255, 0.04) 0%,
-    rgba(255, 255, 255, 0.01) 40%,
-    rgba(0, 0, 0, 0.02) 85%,
-    transparent 100%
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(255, 255, 255, 0.01) 60%,
+    rgba(0, 0, 0, 0.015) 100%
   );
   pointer-events: none;
   z-index: 9;
 }
 
-/* Sombra tenue en los extremos externos de la hoja */
+/* Sombra interior en esquinas superior e inferior hacia la encuadernación */
+.page.--left .page-corner-gutter-shadow {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 90px;
+  height: 100%;
+  background: radial-gradient(ellipse at 100% 0%, rgba(0, 0, 0, 0.16) 0%, transparent 60%),
+              radial-gradient(ellipse at 100% 100%, rgba(0, 0, 0, 0.16) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.page.--right .page-corner-gutter-shadow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 90px;
+  height: 100%;
+  background: radial-gradient(ellipse at 0% 0%, rgba(0, 0, 0, 0.16) 0%, transparent 60%),
+              radial-gradient(ellipse at 0% 100%, rgba(0, 0, 0, 0.16) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Bisel fino y borde físico de corte del papel en el extremo exterior */
 .page.--left .page-outer-edge {
   position: absolute;
   top: 0;
   left: 0;
   bottom: 0;
-  width: 12px;
-  background: linear-gradient(to right, rgba(0, 0, 0, 0.12) 0%, transparent 100%);
+  width: 14px;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.16) 0%, rgba(0, 0, 0, 0.04) 50%, transparent 100%);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.35);
   pointer-events: none;
-  z-index: 10;
+  z-index: 12;
 }
 
 .page.--right .page-outer-edge {
@@ -263,23 +465,66 @@ html, body {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 12px;
-  background: linear-gradient(to left, rgba(0, 0, 0, 0.12) 0%, transparent 100%);
+  width: 14px;
+  background: linear-gradient(to left, rgba(0, 0, 0, 0.16) 0%, rgba(0, 0, 0, 0.04) 50%, transparent 100%);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.35);
   pointer-events: none;
-  z-index: 10;
+  z-index: 12;
 }
 
-/* Portadas duras */
+/* ==========================================================================
+   DETALLES DE TAPA DURA EN PORTADA Y CONTRAPORTADA
+   ========================================================================== */
+
 .page.--hard {
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
 }
 
 .page-cover-front {
-  border-radius: 2px 5px 5px 2px;
+  border-radius: 2px 7px 7px 2px;
 }
 
 .page-cover-back {
-  border-radius: 5px 2px 2px 5px;
+  border-radius: 7px 2px 2px 7px;
+}
+
+/* Hendidura física de la bisagra de la tapa dura (ranura de articulación a 22px del lomo) */
+.page-cover-front .page-cover-hinge-crease {
+  position: absolute;
+  top: 0;
+  left: 22px;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(to right, rgba(0,0,0,0.22) 0%, rgba(255,255,255,0.08) 50%, rgba(0,0,0,0.18) 100%);
+  box-shadow: 0 0 2px rgba(0,0,0,0.4);
+  pointer-events: none;
+  z-index: 13;
+}
+
+.page-cover-back .page-cover-hinge-crease {
+  position: absolute;
+  top: 0;
+  right: 22px;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(to left, rgba(0,0,0,0.22) 0%, rgba(255,255,255,0.08) 50%, rgba(0,0,0,0.18) 100%);
+  box-shadow: 0 0 2px rgba(0,0,0,0.4);
+  pointer-events: none;
+  z-index: 13;
+}
+
+/* Brillo y relieve sutil en tapas duras */
+.page-cover-sheen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 45%, rgba(0,0,0,0.08) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+              inset 0 0 15px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  z-index: 14;
 }
 
 /* ==========================================================================
@@ -292,7 +537,7 @@ html, body {
   bottom: 0;
   width: 7vw;
   min-width: 50px;
-  max-width: 100px;
+  max-width: 110px;
   z-index: 20;
   background: transparent;
   border: none;
@@ -310,7 +555,6 @@ html, body {
   right: 0;
 }
 
-/* Indicador de cursor elegante al posarse sobre los bordes */
 .edge-left:hover {
   cursor: w-resize;
 }
@@ -320,7 +564,7 @@ html, body {
 }
 
 /* ==========================================================================
-   INDICADOR DE CARGA ULTRA-MINIMALISTA (ANIMACIÓN DE HOJAS)
+   INDICADOR DE CARGA ULTRA-MINIMALISTA CON BARRA DE PROGRESO
    ========================================================================== */
 
 .loader-overlay {
@@ -334,7 +578,7 @@ html, body {
   justify-content: center;
   background: #08090b;
   z-index: 100;
-  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.6s;
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.5s;
 }
 
 .loader-overlay.is-hidden {
@@ -356,7 +600,7 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  width: 200px;
+  width: 220px;
 }
 
 .loader-progress-track {
@@ -373,7 +617,7 @@ html, body {
   background: #e2ddd3;
   border-radius: 4px;
   transition: width 0.2s ease-out;
-  box-shadow: 0 0 8px rgba(226, 221, 211, 0.5);
+  box-shadow: 0 0 10px rgba(226, 221, 211, 0.6);
 }
 
 .loader-status-text {
@@ -433,17 +677,99 @@ html, body {
 }
 
 /* ==========================================================================
+   BOTÓN FLOTANTE DE PANTALLA COMPLETA ELEGANTE Y DISCRETO
+   ========================================================================== */
+
+.fullscreen-toggle-btn {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(18, 20, 26, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #dcd8d0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 60;
+  opacity: 0.55;
+  transition: opacity 0.25s ease, background 0.25s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  outline: none;
+}
+
+.fullscreen-toggle-btn:hover {
+  opacity: 1;
+  background: rgba(28, 31, 38, 0.85);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+}
+
+.fullscreen-toggle-btn:active {
+  transform: scale(0.95);
+}
+
+.fullscreen-toggle-btn .icon-compress {
+  display: none;
+}
+
+body.is-fullscreen .fullscreen-toggle-btn .icon-expand {
+  display: none;
+}
+
+body.is-fullscreen .fullscreen-toggle-btn .icon-compress {
+  display: block;
+}
+
+/* ==========================================================================
+   OPTIMIZACIONES PARA BAJOS RECURSOS Y RENDIMIENTO DE GPU (HARDWARE ACCEL)
+   ========================================================================== */
+
+.page {
+  contain: layout paint style;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+.page-content {
+  contain: layout paint;
+  transform: translateZ(0);
+}
+
+.page-canvas {
+  contain: strict;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+/* ==========================================================================
    RESPONSIVIDAD Y OPTIMIZACIÓN MULTIDISPOSITIVO
    ========================================================================== */
 
 @media (max-width: 768px) {
   :root {
-    --spine-crease-width: 28px;
+    --spine-crease-width: 38px;
   }
-  .book-side-thickness {
+  .book-side-thickness,
+  .book-edge-stack,
+  .book-hardcover-base {
     display: none;
   }
   .edge-click-zone {
     width: 12vw;
   }
+  .fullscreen-toggle-btn {
+    top: 12px;
+    right: 12px;
+    width: 40px;
+    height: 40px;
+  }
 }
+

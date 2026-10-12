@@ -18,12 +18,19 @@
   const edgeRight = document.getElementById('edge-click-right');
   const thicknessLeft = document.querySelector('.book-thickness-left');
   const thicknessRight = document.querySelector('.book-thickness-right');
+  const bookHardcoverBase = document.getElementById('book-hardcover-base');
+  const bookSpineCreaseShadow = document.getElementById('book-spine-crease-shadow');
+  const hardcoverSpineHead = document.querySelector('.hardcover-spine-head');
+  const hardcoverSpineTail = document.querySelector('.hardcover-spine-tail');
+  const fullscreenBtn = document.getElementById('fullscreen-btn');
 
   // Estado del visor
   let pageFlipInstance = null;
   let bookConfig = null;
   let isBookLoaded = false;
   let resizeTimeout = null;
+  let currentFlipDirection = 'forward';
+  let lastKnownPageIndex = 0;
 
   // Estado del sistema de zoom y paneo
   let zoomScale = 1.0;
@@ -108,13 +115,28 @@
         pageDiv.classList.add('page-inner');
       }
 
-      // Estructura interna de contenido y sombras realistas
+      // Estructura interna de contenido y sombras realistas multicapa
+      const isFrontCover = (i === 1);
+      const isBackCover = (i === totalPages);
+
+      let coverDecorations = '';
+      if (isFrontCover || isBackCover) {
+        coverDecorations = `
+          <div class="page-cover-sheen" aria-hidden="true"></div>
+          <div class="page-cover-hinge-crease" aria-hidden="true"></div>
+        `;
+      }
+
       pageDiv.innerHTML = `
         <div class="page-content">
           <canvas class="page-canvas" id="canvas-page-${i}"></canvas>
+          <div class="page-paper-grain" aria-hidden="true"></div>
           <div class="page-spine-shadow" aria-hidden="true"></div>
+          <div class="page-curl-arch" aria-hidden="true"></div>
           <div class="page-lighting-glow" aria-hidden="true"></div>
+          <div class="page-corner-gutter-shadow" aria-hidden="true"></div>
           <div class="page-outer-edge" aria-hidden="true"></div>
+          ${coverDecorations}
         </div>
       `;
 
@@ -183,7 +205,7 @@
   const bookAmbientShadow = document.getElementById('book-ambient-shadow');
 
   /**
-   * Actualiza el grosor de las hojas físicas y sombra según la posición actual
+   * Actualiza el grosor de las hojas físicas, tapa dura y sombras según la posición actual
    */
   function updatePhysicalThickness(currentIndex, totalPages) {
     if (!thicknessLeft || !thicknessRight) return;
@@ -192,31 +214,52 @@
       // Libro cerrado en portada
       thicknessLeft.style.opacity = '0';
       thicknessRight.style.opacity = '1';
-      thicknessRight.style.width = '12px';
+      thicknessRight.style.width = '14px';
       if (bookAmbientShadow) {
         bookAmbientShadow.style.left = '50%';
         bookAmbientShadow.style.width = '52%';
       }
+      if (bookHardcoverBase) {
+        bookHardcoverBase.style.left = '50%';
+        bookHardcoverBase.style.width = '52%';
+      }
+      if (bookSpineCreaseShadow) bookSpineCreaseShadow.style.opacity = '0';
+      if (hardcoverSpineHead) hardcoverSpineHead.style.opacity = '0';
+      if (hardcoverSpineTail) hardcoverSpineTail.style.opacity = '0';
     } else if (currentIndex >= totalPages - 1) {
       // Libro cerrado en contraportada
       thicknessLeft.style.opacity = '1';
-      thicknessLeft.style.width = '12px';
+      thicknessLeft.style.width = '14px';
       thicknessRight.style.opacity = '0';
       if (bookAmbientShadow) {
         bookAmbientShadow.style.left = '-2%';
         bookAmbientShadow.style.width = '52%';
       }
+      if (bookHardcoverBase) {
+        bookHardcoverBase.style.left = '-6px';
+        bookHardcoverBase.style.width = '52%';
+      }
+      if (bookSpineCreaseShadow) bookSpineCreaseShadow.style.opacity = '0';
+      if (hardcoverSpineHead) hardcoverSpineHead.style.opacity = '0';
+      if (hardcoverSpineTail) hardcoverSpineTail.style.opacity = '0';
     } else {
       // Abierto en páginas interiores
       const progress = currentIndex / totalPages;
-      thicknessLeft.style.opacity = '0.85';
-      thicknessRight.style.opacity = '0.85';
-      thicknessLeft.style.width = `${Math.max(4, Math.round(12 * progress))}px`;
-      thicknessRight.style.width = `${Math.max(4, Math.round(12 * (1 - progress)))}px`;
+      thicknessLeft.style.opacity = '0.92';
+      thicknessRight.style.opacity = '0.92';
+      thicknessLeft.style.width = `${Math.max(5, Math.round(14 * progress))}px`;
+      thicknessRight.style.width = `${Math.max(5, Math.round(14 * (1 - progress)))}px`;
       if (bookAmbientShadow) {
         bookAmbientShadow.style.left = '-2%';
         bookAmbientShadow.style.width = '104%';
       }
+      if (bookHardcoverBase) {
+        bookHardcoverBase.style.left = '-6px';
+        bookHardcoverBase.style.width = 'calc(100% + 12px)';
+      }
+      if (bookSpineCreaseShadow) bookSpineCreaseShadow.style.opacity = '0.9';
+      if (hardcoverSpineHead) hardcoverSpineHead.style.opacity = '1';
+      if (hardcoverSpineTail) hardcoverSpineTail.style.opacity = '1';
     }
   }
 
@@ -243,7 +286,7 @@
   }
 
   /**
-   * Inicializa el flipbook StPageFlip
+   * Inicializa el flipbook StPageFlip con fidelidad física máxima
    */
   async function initBook(source = 'libro.pdf') {
     try {
@@ -301,14 +344,15 @@
         maxHeight: 2200,
         showCover: true,
         drawShadow: true,
-        maxShadowOpacity: 0.65,
-        flippingTime: 800,
+        maxShadowOpacity: 0.85,
+        flippingTime: 920,
         usePortrait: dimensions.isMobilePortrait,
-        startZIndex: 2,
+        startZIndex: 3,
         autoSize: false,
         clickEventForward: true,
         useMouseEvents: true,
         showPageCorners: true,
+        swipeDistance: 30,
         mobileScrollSupport: false
       });
 
@@ -320,16 +364,31 @@
       });
 
       pageFlipInstance.on('changeState', (e) => {
-        if (e.data === 'flipping') {
+        if (e.data === 'user_fold' || e.data === 'fold_corner') {
+          // Roce sutil de esquina doblándose al arrastrar
           if (window.paperSound) {
-            window.paperSound.playFlip();
+            window.paperSound.playCornerFold();
+          }
+        } else if (e.data === 'flipping') {
+          // Sonido de paso completo con paneo estéreo espacial según dirección
+          if (window.paperSound) {
+            window.paperSound.playFlip(currentFlipDirection);
           }
         }
       });
 
       pageFlipInstance.on('flip', (e) => {
         const currentPage = e.data;
+        currentFlipDirection = (currentPage >= lastKnownPageIndex) ? 'forward' : 'backward';
+        lastKnownPageIndex = currentPage;
+
         updatePhysicalThickness(currentPage, pdfMeta.numPages);
+
+        // Optimización bajos recursos: liberar memoria VRAM de páginas alejadas
+        if (window.pdfBookLoader && window.pdfBookLoader.evictDistantPages) {
+          window.pdfBookLoader.evictDistantPages(currentPage, 4);
+        }
+
         renderPageRange(currentPage + 1, 3);
       });
 
@@ -584,11 +643,28 @@
     });
   }
 
+  /**
+   * Configura el botón interactivo de pantalla completa y su sincronización
+   */
+  function setupFullscreenControls() {
+    if (fullscreenBtn) {
+      fullscreenBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        toggleFullScreen();
+      });
+    }
+
+    document.addEventListener('fullscreenchange', () => {
+      document.body.classList.toggle('is-fullscreen', !!document.fullscreenElement);
+    });
+  }
+
   // Inicialización al cargar el DOM o inmediata si ya está listo
   function start() {
     initBook('libro.pdf');
     setupKeyboardNavigation();
     setupEdgeClickZones();
+    setupFullscreenControls();
     setupZoomAndPan();
     setupDragAndDrop();
     setupResizeHandler();

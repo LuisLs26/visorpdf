@@ -26,8 +26,19 @@
         
         <!-- Sombra realista de contacto debajo del libro -->
         <div id="book-ambient-shadow" class="book-ambient-shadow"></div>
+        <div id="book-spine-crease-shadow" class="book-spine-crease-shadow" aria-hidden="true"></div>
         
-        <!-- Bloque de hojas (espesor físico lateral) -->
+        <!-- Base rígida de la tapa dura (se extiende ligeramente más allá de las páginas) -->
+        <div id="book-hardcover-base" class="book-hardcover-base" aria-hidden="true">
+          <div class="hardcover-spine-head"></div>
+          <div class="hardcover-spine-tail"></div>
+        </div>
+
+        <!-- Cantos superior e inferior del bloque de hojas (curvatura hacia el lomo) -->
+        <div class="book-edge-stack book-edge-top" aria-hidden="true"></div>
+        <div class="book-edge-stack book-edge-bottom" aria-hidden="true"></div>
+
+        <!-- Bloque de hojas (espesor físico lateral con perspectiva) -->
         <div class="book-side-thickness book-thickness-left" aria-hidden="true"></div>
         <div class="book-side-thickness book-thickness-right" aria-hidden="true"></div>
 
@@ -58,6 +69,16 @@
     <!-- Zonas invisibles de clic en los extremos para pasar páginas fluidamente -->
     <button type="button" id="edge-click-left" class="edge-click-zone edge-left" aria-label="Página anterior" tabindex="-1"></button>
     <button type="button" id="edge-click-right" class="edge-click-zone edge-right" aria-label="Página siguiente" tabindex="-1"></button>
+
+    <!-- Botón elegante y discreto de pantalla completa -->
+    <button type="button" id="fullscreen-btn" class="fullscreen-toggle-btn" aria-label="Pantalla completa" title="Pantalla completa (F)">
+      <svg class="fullscreen-icon icon-expand" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+      </svg>
+      <svg class="fullscreen-icon icon-compress" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path>
+      </svg>
+    </button>
 
   </main>
 
