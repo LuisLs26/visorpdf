@@ -23,28 +23,36 @@ class PDFBookLoader {
   /**
    * Carga el PDF desde la raíz del proyecto de forma automática
    */
-  async loadDocument(url = 'libro.pdf') {
+  async loadDocument(url = 'libro.pdf', onProgress = null) {
     if (!window.pdfjsLib) {
       throw new Error('PDF.js no está disponible.');
     }
 
     const candidateUrls = [url, 'document.pdf', 'book.pdf'];
-    let loadingTask = null;
     let loadedSuccessfully = false;
 
     for (const candidate of candidateUrls) {
       try {
         const loadingTaskCandidate = window.pdfjsLib.getDocument({
           url: candidate,
-          cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
-          cMapPacked: true
+          rangeChunkSize: 65536,
+          disableAutoFetch: false
         });
+
+        if (onProgress) {
+          loadingTaskCandidate.onProgress = ({ loaded, total }) => {
+            if (total > 0) {
+              const pct = Math.min(99, Math.round((loaded / total) * 100));
+              onProgress(pct, loaded, total);
+            }
+          };
+        }
+
         this.pdfDoc = await loadingTaskCandidate.promise;
         loadedSuccessfully = true;
         break;
       } catch (err) {
-        // Intentar siguiente candidato si falla
-        console.warn(`No se pudo cargar desde ${candidate}, probando alternativa...`);
+        console.warn(`No se pudo cargar desde ${candidate}, probando alternativa...`, err);
       }
     }
 

@@ -12,6 +12,8 @@
   const bookWrapper = document.getElementById('book-wrapper');
   const bookElement = document.getElementById('book');
   const loader = document.getElementById('loader');
+  const loaderProgressBar = document.getElementById('loader-progress-bar');
+  const loaderStatusText = document.getElementById('loader-status-text');
   const edgeLeft = document.getElementById('edge-click-left');
   const edgeRight = document.getElementById('edge-click-right');
   const thicknessLeft = document.querySelector('.book-thickness-left');
@@ -218,20 +220,47 @@
     }
   }
 
+  function updateLoadingProgress(percent, loaded, total) {
+    if (loaderProgressBar) {
+      loaderProgressBar.style.width = `${percent}%`;
+    }
+    if (loaderStatusText) {
+      if (total > 0) {
+        const mbLoaded = (loaded / (1024 * 1024)).toFixed(1);
+        const mbTotal = (total / (1024 * 1024)).toFixed(1);
+        loaderStatusText.textContent = `Cargando libro... ${percent}% (${mbLoaded} / ${mbTotal} MB)`;
+      } else {
+        loaderStatusText.textContent = `Cargando libro... ${percent}%`;
+      }
+    }
+  }
+
+  function dismissLoader() {
+    if (loader && !loader.classList.contains('is-hidden')) {
+      loader.classList.add('is-hidden');
+    }
+    isBookLoaded = true;
+  }
+
   /**
    * Inicializa el flipbook StPageFlip
    */
   async function initBook(source = 'libro.pdf') {
     try {
       loader.classList.remove('is-hidden');
+      if (loaderProgressBar) loaderProgressBar.style.width = '5%';
+      if (loaderStatusText) loaderStatusText.textContent = 'Conectando con el libro...';
 
-      // 1. Cargar el PDF
+      // 1. Cargar el PDF con seguimiento de progreso en tiempo real
       let pdfMeta;
       if (typeof source === 'string') {
-        pdfMeta = await window.pdfBookLoader.loadDocument(source);
+        pdfMeta = await window.pdfBookLoader.loadDocument(source, updateLoadingProgress);
       } else {
         pdfMeta = await window.pdfBookLoader.loadFromFile(source);
       }
+
+      if (loaderStatusText) loaderStatusText.textContent = 'Renderizando portada...';
+      if (loaderProgressBar) loaderProgressBar.style.width = '100%';
 
       // 2. Calcular dimensiones óptimas
       const dimensions = calculateOptimalBookDimensions(pdfMeta.aspectRatio);
@@ -249,8 +278,8 @@
       // 3. Crear elementos DOM para cada página
       buildPageElements(pdfMeta.numPages, dimensions);
 
-      // 4. Renderizar prioritariamente las páginas 1 (portada) y 2-3 (primer spread)
-      await renderPageRange(1, 2);
+      // 4. Renderizar prioritariamente la página 1 (portada)
+      await renderPageRange(1, 1);
 
       // 5. Destruir instancia previa si existe
       if (pageFlipInstance) {
@@ -283,21 +312,15 @@
         mobileScrollSupport: false
       });
 
-      // 7. Cargar páginas HTML en el motor 3D
-      const pageElements = document.querySelectorAll('.page');
-      pageFlipInstance.loadFromHTML(pageElements);
-
-      // 8. Eventos de interacción y sonido
+      // 7. REGISTRAR EVENTOS ANTES de loadFromHTML para no perder el evento 'init'
       pageFlipInstance.on('init', () => {
-        isBookLoaded = true;
-        loader.classList.add('is-hidden');
+        dismissLoader();
         updatePhysicalThickness(0, pdfMeta.numPages);
         startBackgroundPreload();
       });
 
       pageFlipInstance.on('changeState', (e) => {
         if (e.data === 'flipping') {
-          // Sonido de papel fluido y realista
           if (window.paperSound) {
             window.paperSound.playFlip();
           }
@@ -307,9 +330,20 @@
       pageFlipInstance.on('flip', (e) => {
         const currentPage = e.data;
         updatePhysicalThickness(currentPage, pdfMeta.numPages);
-        // Pre-renderizar páginas adyacentes al voltear
         renderPageRange(currentPage + 1, 3);
       });
+
+      // 8. Cargar páginas HTML en el motor 3D
+      const pageElements = document.querySelectorAll('.page');
+      pageFlipInstance.loadFromHTML(pageElements);
+
+      // 9. Descartar cargador con respaldo directo para garantizar que no quede bloqueado
+      dismissLoader();
+      updatePhysicalThickness(0, pdfMeta.numPages);
+      setTimeout(dismissLoader, 350);
+
+      // 10. Precargar las páginas 2 y 3 del primer pliego en segundo plano
+      renderPageRange(2, 2);
 
     } catch (error) {
       console.error('Error crítico al inicializar Visor Libro:', error);
@@ -550,14 +584,20 @@
     });
   }
 
-  // Inicialización al cargar el DOM
-  document.addEventListener('DOMContentLoaded', () => {
+  // Inicialización al cargar el DOM o inmediata si ya está listo
+  function start() {
     initBook('libro.pdf');
     setupKeyboardNavigation();
     setupEdgeClickZones();
     setupZoomAndPan();
     setupDragAndDrop();
     setupResizeHandler();
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
 
 })();

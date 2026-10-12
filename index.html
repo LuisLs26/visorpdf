@@ -38,12 +38,20 @@
       
     </div>
 
-    <!-- Indicador de carga ultra-minimalista y elegante (desaparece al cargar) -->
+    <!-- Indicador de carga ultra-minimalista y elegante con barra de progreso -->
     <div id="loader" class="loader-overlay" aria-live="polite">
-      <div class="book-loader-spine">
-        <div class="loader-page loader-page-1"></div>
-        <div class="loader-page loader-page-2"></div>
-        <div class="loader-page loader-page-3"></div>
+      <div class="loader-box">
+        <div class="book-loader-spine">
+          <div class="loader-page loader-page-1"></div>
+          <div class="loader-page loader-page-2"></div>
+          <div class="loader-page loader-page-3"></div>
+        </div>
+        <div class="loader-status">
+          <div class="loader-progress-track">
+            <div id="loader-progress-bar" class="loader-progress-bar"></div>
+          </div>
+          <p id="loader-status-text" class="loader-status-text">Cargando libro...</p>
+        </div>
       </div>
     </div>
 

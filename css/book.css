@@ -343,6 +343,49 @@ html, body {
   pointer-events: none;
 }
 
+.loader-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+}
+
+.loader-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 200px;
+}
+
+.loader-progress-track {
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.loader-progress-bar {
+  width: 0%;
+  height: 100%;
+  background: #e2ddd3;
+  border-radius: 4px;
+  transition: width 0.2s ease-out;
+  box-shadow: 0 0 8px rgba(226, 221, 211, 0.5);
+}
+
+.loader-status-text {
+  font-size: 13px;
+  font-weight: 400;
+  color: #a4a29d;
+  letter-spacing: 0.5px;
+  margin: 0;
+  text-align: center;
+  font-family: inherit;
+}
+
 .book-loader-spine {
   position: relative;
   width: 60px;
