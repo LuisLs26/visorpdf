@@ -104,15 +104,23 @@ class PDFBookLoader {
   }
 
   /**
-   * Determina el factor de escala de resolución óptimo para máxima nitidez (HiDPI / Retina)
-   * Garantiza que el texto vectorial y las ilustraciones nunca pierdan calidad.
+   * Determina el factor de escala de resolución óptimo.
+   * Proporciona nitidez cristalina sin sobrecargar la GPU en animaciones 3D.
    */
   getOptimalDpr() {
     const deviceDpr = window.devicePixelRatio || 1;
-    // Escala mínima de 2.2x para definición ultra nítida de imprenta
-    const targetDpr = Math.max(deviceDpr * 1.5, 2.2);
-    // Limitar a un máximo de 3.0x para balance perfecto de nitidez y fluidez
-    return Math.min(targetDpr, 3.0);
+    // En pantallas estándar usamos 1.45x (garantiza vectores nítidos sin blur),
+    // y en pantallas Retina/HiDPI usamos hasta un tope de 1.75x para máxima fluidez a 60fps.
+    return Math.min(Math.max(deviceDpr, 1.45), 1.75);
+  }
+
+  /**
+   * Verifica si una página ya cuenta con su canvas renderizado en alta resolución
+   */
+  isPageRendered(pageNumber, displayWidth) {
+    const cacheKey = `${pageNumber}-${Math.round(displayWidth)}`;
+    const canvas = document.getElementById(`canvas-page-${pageNumber}`);
+    return this.renderedPages.has(cacheKey) && canvas && canvas.width > 10;
   }
 
   /**

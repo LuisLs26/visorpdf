@@ -20,8 +20,7 @@ Un visor web inmersivo de documentos PDF diseñado exclusivamente para simular l
   - Arrastre táctil y con ratón desde las esquinas de las páginas.
   - Clic en los extremos izquierdo y derecho de la pantalla para pasar páginas.
   - Navegación completa por teclado (Flechas `←` / `→`, `Espacio`, `RePág` / `AvPág`, `Inicio` / `Fin`).
-  - **Pantalla Completa**: Presiona la tecla `F`.
-  - **Zoom & Paneo**: Rueda del ratón o pellizco táctil para ampliar detalles sin perder el control de la lectura (doble clic o tecla `Esc` para reiniciar zoom).
+  - **Zoom & Paneo**: Rueda del ratón o pellizco táctil para ampliar detalles sin perder el control de la lectura (tecla `Esc` para reiniciar zoom).
 - **Rendimiento y Nitidez (HiDPI / Retina)**:
   - Renderizado vectorial de alta resolución con PDF.js respetando colores y calidad original.
   - Carga progresiva y precarga en segundo plano de páginas adyacentes para una respuesta inmediata.
@@ -50,10 +49,9 @@ Para cambiar el contenido del libro:
 | **Página anterior** | Flecha Izquierda (`←`), Flecha Arriba (`↑`), `RePág` o clic en el borde izquierdo |
 | **Ir a portada** | Tecla `Inicio` (`Home`) |
 | **Ir a contraportada** | Tecla `Fin` (`End`) |
-| **Pantalla Completa** | Tecla **`F`** |
 | **Zoom in / out** | Rueda del ratón (`Scroll`) o pellizco táctil |
 | **Moverse al tener zoom** | Arrastrar con el botón principal del ratón |
-| **Restablecer zoom** | Doble clic o tecla `Esc` |
+| **Restablecer zoom** | Tecla `Esc` |
 
 ---
 

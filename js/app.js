@@ -21,9 +21,6 @@
   const bookHardcoverBase = document.getElementById('book-hardcover-base');
   const bookSpineCreaseShadow = document.getElementById('book-spine-crease-shadow');
   const hardcoverSpineHead = document.querySelector('.hardcover-spine-head');
-  const hardcoverSpineTail = document.querySelector('.hardcover-spine-tail');
-  const fullscreenBtn = document.getElementById('fullscreen-btn');
-
   // Estado del visor
   let pageFlipInstance = null;
   let bookConfig = null;
@@ -32,6 +29,8 @@
   let currentFlipDirection = 'forward';
   let lastKnownPageIndex = 0;
   let currentPdfSource = 'libro.pdf';
+  let isFlipping = false;
+  let preloadTimeout = null;
 
   // Estado del sistema de zoom y paneo
   let zoomScale = 1.0;
@@ -131,11 +130,7 @@
       pageDiv.innerHTML = `
         <div class="page-content">
           <canvas class="page-canvas" id="canvas-page-${i}"></canvas>
-          <div class="page-paper-grain" aria-hidden="true"></div>
           <div class="page-spine-shadow" aria-hidden="true"></div>
-          <div class="page-curl-arch" aria-hidden="true"></div>
-          <div class="page-lighting-glow" aria-hidden="true"></div>
-          <div class="page-corner-gutter-shadow" aria-hidden="true"></div>
           <div class="page-outer-edge" aria-hidden="true"></div>
           ${coverDecorations}
         </div>
@@ -148,36 +143,56 @@
   }
 
   /**
-   * Renderiza progresivamente las páginas cercanas
+   * Renderiza el pliego visible inmediatamente (máximo 2 páginas)
    */
-  async function renderPageRange(centerPage, radius = 2) {
+  async function renderSpread(pageIndex) {
     if (!bookConfig) return;
     const total = bookConfig.numPages;
-    const start = Math.max(1, centerPage - radius);
-    const end = Math.min(total, centerPage + radius);
+    const p1 = pageIndex + 1;
+    const p2 = pageIndex + 2;
 
-    // Priorizar pliego central visible y después adyacentes
-    const pagesToRender = [centerPage];
-    for (let i = 1; i <= radius; i++) {
-      if (centerPage + i <= end) pagesToRender.push(centerPage + i);
-      if (centerPage - i >= start) pagesToRender.push(centerPage - i);
+    const canvas1 = document.getElementById(`canvas-page-${p1}`);
+    if (canvas1) {
+      window.pdfBookLoader.renderPageToCanvas(p1, canvas1, bookConfig.pageWidth, bookConfig.pageHeight);
     }
-
-    for (const p of pagesToRender) {
-      const canvas = document.getElementById(`canvas-page-${p}`);
-      if (canvas) {
-        window.pdfBookLoader.renderPageToCanvas(
-          p,
-          canvas,
-          bookConfig.pageWidth,
-          bookConfig.pageHeight
-        );
+    if (p2 <= total) {
+      const canvas2 = document.getElementById(`canvas-page-${p2}`);
+      if (canvas2) {
+        window.pdfBookLoader.renderPageToCanvas(p2, canvas2, bookConfig.pageWidth, bookConfig.pageHeight);
       }
     }
   }
 
   /**
-   * Cola de precarga en segundo plano para páginas distantes
+   * Pre-carga de forma diferida las páginas adyacentes para que nunca compitan con la animación
+   */
+  function scheduleNextPagesPreload(currentPage) {
+    clearTimeout(preloadTimeout);
+    preloadTimeout = setTimeout(() => {
+      if (isFlipping || !bookConfig) return;
+      const total = bookConfig.numPages;
+
+      const next1 = currentPage + 3;
+      const next2 = currentPage + 4;
+      if (next1 <= total) {
+        const c1 = document.getElementById(`canvas-page-${next1}`);
+        if (c1) window.pdfBookLoader.renderPageToCanvas(next1, c1, bookConfig.pageWidth, bookConfig.pageHeight);
+      }
+      if (next2 <= total) {
+        const c2 = document.getElementById(`canvas-page-${next2}`);
+        if (c2) window.pdfBookLoader.renderPageToCanvas(next2, c2, bookConfig.pageWidth, bookConfig.pageHeight);
+      }
+
+      const prev = currentPage;
+      if (prev >= 1) {
+        const cp = document.getElementById(`canvas-page-${prev}`);
+        if (cp) window.pdfBookLoader.renderPageToCanvas(prev, cp, bookConfig.pageWidth, bookConfig.pageHeight);
+      }
+    }, 350);
+  }
+
+  /**
+   * Cola de precarga inteligente en segundo plano sin interrumpir la interacción del usuario
    */
   function startBackgroundPreload() {
     if (!bookConfig) return;
@@ -186,8 +201,13 @@
 
     function loadNext() {
       if (nextPageToLoad > total) return;
+      if (isFlipping) {
+        setTimeout(loadNext, 450);
+        return;
+      }
+
       const canvas = document.getElementById(`canvas-page-${nextPageToLoad}`);
-      if (canvas) {
+      if (canvas && !window.pdfBookLoader.isPageRendered(nextPageToLoad, bookConfig.pageWidth)) {
         window.pdfBookLoader.renderPageToCanvas(
           nextPageToLoad,
           canvas,
@@ -196,9 +216,9 @@
         ).then(() => {
           nextPageToLoad++;
           if (window.requestIdleCallback) {
-            window.requestIdleCallback(loadNext, { timeout: 800 });
+            window.requestIdleCallback(loadNext, { timeout: 1500 });
           } else {
-            setTimeout(loadNext, 120);
+            setTimeout(loadNext, 300);
           }
         });
       } else {
@@ -207,7 +227,7 @@
       }
     }
 
-    loadNext();
+    setTimeout(loadNext, 1000);
   }
 
   const bookAmbientShadow = document.getElementById('book-ambient-shadow');
@@ -330,8 +350,8 @@
       // 3. Crear elementos DOM para cada página
       buildPageElements(pdfMeta.numPages, dimensions);
 
-      // 4. Renderizar prioritariamente la página 1 (portada)
-      await renderPageRange(1, 1);
+      // 4. Renderizar prioritariamente la portada
+      await renderSpread(0);
 
       // 5. Destruir instancia previa si existe
       if (pageFlipInstance) {
@@ -342,7 +362,7 @@
         }
       }
 
-      // 6. Instanciar StPageFlip con configuración hiperrealista
+      // 6. Instanciar StPageFlip con configuración optimizada y ágil a 60fps
       pageFlipInstance = new St.PageFlip(bookElement, {
         startPage: lastKnownPageIndex || 0,
         width: dimensions.pageWidth,
@@ -354,8 +374,8 @@
         maxHeight: 2200,
         showCover: true,
         drawShadow: true,
-        maxShadowOpacity: 0.85,
-        flippingTime: 920,
+        maxShadowOpacity: 0.70,
+        flippingTime: 620,
         usePortrait: dimensions.isMobilePortrait,
         startZIndex: 3,
         autoSize: false,
@@ -375,15 +395,17 @@
 
       pageFlipInstance.on('changeState', (e) => {
         if (e.data === 'user_fold' || e.data === 'fold_corner') {
-          // Roce sutil de esquina doblándose al arrastrar
+          isFlipping = true;
           if (window.paperSound) {
             window.paperSound.playCornerFold();
           }
         } else if (e.data === 'flipping') {
-          // Sonido de paso completo con paneo estéreo espacial según dirección
+          isFlipping = true;
           if (window.paperSound) {
             window.paperSound.playFlip(currentFlipDirection);
           }
+        } else if (e.data === 'read') {
+          isFlipping = false;
         }
       });
 
@@ -394,25 +416,26 @@
 
         updatePhysicalThickness(currentPage, pdfMeta.numPages);
 
-        // Preservar memoria en documentos largos sin afectar páginas del visor
         if (window.pdfBookLoader && window.pdfBookLoader.evictDistantPages) {
           window.pdfBookLoader.evictDistantPages(currentPage, 8);
         }
 
-        renderPageRange(currentPage + 1, 3);
+        renderSpread(currentPage);
+        scheduleNextPagesPreload(currentPage);
       });
 
       // 8. Cargar páginas HTML en el motor 3D
       const pageElements = document.querySelectorAll('.page');
       pageFlipInstance.loadFromHTML(pageElements);
 
-      // 9. Descartar cargador con respaldo directo para garantizar que no quede bloqueado
+      // 9. Descartar cargador
       dismissLoader();
       updatePhysicalThickness(0, pdfMeta.numPages);
-      setTimeout(dismissLoader, 350);
+      setTimeout(dismissLoader, 300);
 
-      // 10. Precargar las páginas 2 y 3 del primer pliego en segundo plano
-      renderPageRange(2, 2);
+      // 10. Precargar páginas del primer pliego
+      renderSpread(0);
+      scheduleNextPagesPreload(0);
 
     } catch (error) {
       console.error('Error crítico al inicializar Visor Libro:', error);
@@ -457,13 +480,6 @@
           if (bookConfig) {
             pageFlipInstance.flip(bookConfig.numPages - 1);
           }
-          break;
-
-        case 'f':
-        case 'F':
-          // Requisito 5: Pantalla completa con tecla F
-          e.preventDefault();
-          toggleFullScreen();
           break;
 
         case 'Escape':
@@ -618,21 +634,6 @@
   }
 
   /**
-   * Requisito 5: Alternar pantalla completa
-   */
-  function toggleFullScreen() {
-    if (!document.fullscreenElement) {
-      if (document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {});
-      }
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {});
-      }
-    }
-  }
-
-  /**
    * Arrastrar y soltar un PDF alternativo
    */
   function setupDragAndDrop() {
@@ -664,26 +665,9 @@
 
         const newDims = calculateOptimalBookDimensions(bookConfig.aspectRatio);
         if (newDims.pageWidth !== bookConfig.pageWidth || newDims.pageHeight !== bookConfig.pageHeight) {
-          // Re-inicializar el tamaño si cambia sustancialmente manteniendo la página actual
           initBook(currentPdfSource);
         }
       }, 350);
-    });
-  }
-
-  /**
-   * Configura el botón interactivo de pantalla completa y su sincronización
-   */
-  function setupFullscreenControls() {
-    if (fullscreenBtn) {
-      fullscreenBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        toggleFullScreen();
-      });
-    }
-
-    document.addEventListener('fullscreenchange', () => {
-      document.body.classList.toggle('is-fullscreen', !!document.fullscreenElement);
     });
   }
 
@@ -692,7 +676,6 @@
     initBook('libro.pdf');
     setupKeyboardNavigation();
     setupEdgeClickZones();
-    setupFullscreenControls();
     setupZoomAndPan();
     setupDragAndDrop();
     setupResizeHandler();
