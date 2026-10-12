@@ -10,7 +10,7 @@
   const viewport = document.getElementById('app-viewport');
   const zoomContainer = document.getElementById('zoom-container');
   const bookWrapper = document.getElementById('book-wrapper');
-  const bookElement = document.getElementById('book');
+  let bookElement = document.getElementById('book');
   const loader = document.getElementById('loader');
   const loaderProgressBar = document.getElementById('loader-progress-bar');
   const loaderStatusText = document.getElementById('loader-status-text');
@@ -349,20 +349,28 @@
       bookWrapper.style.width = `${totalWidth}px`;
       bookWrapper.style.height = `${totalHeight}px`;
 
-      // 3. Crear elementos DOM para cada página
-      buildPageElements(pdfMeta.numPages, dimensions);
-
-      // 4. Renderizar prioritariamente la portada
-      await renderSpread(0);
-
-      // 5. Destruir instancia previa si existe
+      // 3. Destruir instancia previa de forma segura antes de crear nuevos elementos
       if (pageFlipInstance) {
         try {
           pageFlipInstance.destroy();
         } catch (e) {
           // ignorar
         }
+        pageFlipInstance = null;
       }
+
+      // 4. Asegurar que #book siempre exista dentro de bookWrapper (StPageFlip destroy remueve this.block del DOM)
+      bookElement = document.getElementById('book');
+      if (!bookElement) {
+        bookElement = document.createElement('div');
+        bookElement.id = 'book';
+        bookElement.className = 'book-flip-container';
+        bookWrapper.appendChild(bookElement);
+      }
+      bookElement.innerHTML = '';
+
+      // 5. Crear elementos DOM para cada página dentro de #book
+      buildPageElements(pdfMeta.numPages, dimensions);
 
       // 6. Instanciar StPageFlip con configuración optimizada y ágil a 60fps
       pageFlipInstance = new St.PageFlip(bookElement, {
@@ -391,7 +399,7 @@
       // 7. REGISTRAR EVENTOS ANTES de loadFromHTML para no perder el evento 'init'
       pageFlipInstance.on('init', () => {
         dismissLoader();
-        updatePhysicalThickness(0, pdfMeta.numPages);
+        updatePhysicalThickness(lastKnownPageIndex || 0, pdfMeta.numPages);
         startBackgroundPreload();
       });
 
@@ -427,17 +435,21 @@
       });
 
       // 8. Cargar páginas HTML en el motor 3D
-      const pageElements = document.querySelectorAll('.page');
-      pageFlipInstance.loadFromHTML(pageElements);
+      const pageElements = bookElement.querySelectorAll('.page');
+      if (pageElements.length > 0) {
+        pageFlipInstance.loadFromHTML(pageElements);
+      }
 
-      // 9. Descartar cargador
+      // 9. Renderizar pliego actual
+      renderSpread(lastKnownPageIndex || 0);
+
+      // 10. Descartar cargador
       dismissLoader();
-      updatePhysicalThickness(0, pdfMeta.numPages);
+      updatePhysicalThickness(lastKnownPageIndex || 0, pdfMeta.numPages);
       setTimeout(dismissLoader, 300);
 
-      // 10. Precargar páginas del primer pliego
-      renderSpread(0);
-      scheduleNextPagesPreload(0);
+      // 11. Precargar páginas contiguas
+      scheduleNextPagesPreload(lastKnownPageIndex || 0);
 
     } catch (error) {
       console.error('Error crítico al inicializar Visor Libro:', error);
@@ -447,6 +459,31 @@
           <p style="color: #aaa; font-size: 13px;">Asegúrate de que <code>libro.pdf</code> esté en la carpeta raíz, o arrastra un archivo PDF directamente sobre esta ventana.</p>
         </div>
       `;
+    }
+  }
+
+  let lastFlipTime = 0;
+  function flipNextSafely() {
+    if (!pageFlipInstance) return;
+    const now = Date.now();
+    if (isFlipping && now - lastFlipTime < 320) return;
+    lastFlipTime = now;
+    try {
+      pageFlipInstance.flipNext();
+    } catch (e) {
+      console.warn('Transición rápida ignorada:', e);
+    }
+  }
+
+  function flipPrevSafely() {
+    if (!pageFlipInstance) return;
+    const now = Date.now();
+    if (isFlipping && now - lastFlipTime < 320) return;
+    lastFlipTime = now;
+    try {
+      pageFlipInstance.flipPrev();
+    } catch (e) {
+      console.warn('Transición rápida ignorada:', e);
     }
   }
 
@@ -462,25 +499,25 @@
         case 'ArrowDown':
         case 'PageDown':
           e.preventDefault();
-          pageFlipInstance.flipNext();
+          flipNextSafely();
           break;
 
         case 'ArrowLeft':
         case 'ArrowUp':
         case 'PageUp':
           e.preventDefault();
-          pageFlipInstance.flipPrev();
+          flipPrevSafely();
           break;
 
         case 'Home':
           e.preventDefault();
-          pageFlipInstance.flip(0);
+          try { pageFlipInstance.flip(0); } catch (err) {}
           break;
 
         case 'End':
           e.preventDefault();
           if (bookConfig) {
-            pageFlipInstance.flip(bookConfig.numPages - 1);
+            try { pageFlipInstance.flip(bookConfig.numPages - 1); } catch (err) {}
           }
           break;
 
@@ -502,7 +539,7 @@
     if (edgeLeft) {
       edgeLeft.addEventListener('click', (e) => {
         e.preventDefault();
-        if (pageFlipInstance) pageFlipInstance.flipPrev();
+        flipPrevSafely();
       });
       edgeLeft.addEventListener('dblclick', (e) => {
         e.preventDefault();
@@ -513,7 +550,7 @@
     if (edgeRight) {
       edgeRight.addEventListener('click', (e) => {
         e.preventDefault();
-        if (pageFlipInstance) pageFlipInstance.flipNext();
+        flipNextSafely();
       });
       edgeRight.addEventListener('dblclick', (e) => {
         e.preventDefault();
@@ -663,13 +700,15 @@
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
-        if (!isBookLoaded || !bookConfig) return;
+        if (!isBookLoaded || !bookConfig || isFlipping) return;
 
         const newDims = calculateOptimalBookDimensions(bookConfig.aspectRatio);
-        if (newDims.pageWidth !== bookConfig.pageWidth || newDims.pageHeight !== bookConfig.pageHeight) {
+        const diffW = Math.abs(newDims.pageWidth - bookConfig.pageWidth);
+        const diffH = Math.abs(newDims.pageHeight - bookConfig.pageHeight);
+        if (diffW > 25 || diffH > 25) {
           initBook(currentPdfSource);
         }
-      }, 350);
+      }, 400);
     });
   }
 

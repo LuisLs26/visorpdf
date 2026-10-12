@@ -147,7 +147,7 @@ class PDFBookLoader {
    * Renderiza una página específica en un elemento Canvas con resolución optimizada y máxima calidad
    */
   async renderPageToCanvas(pageNumber, canvas, displayWidth, displayHeight) {
-    if (!this.pdfDoc || pageNumber < 1 || pageNumber > this.numPages) return;
+    if (!this.pdfDoc || pageNumber < 1 || pageNumber > this.numPages || !canvas) return;
 
     // Si ya está renderizada con buena resolución y el canvas tiene contenido, evitar trabajo duplicado
     const cacheKey = `${pageNumber}-${Math.round(displayWidth)}`;
@@ -155,59 +155,59 @@ class PDFBookLoader {
       return;
     }
 
-    // Cancelar tarea previa si el canvas estaba en proceso de renderizado
+    // Si este canvas ya está en proceso de renderizado, reutilizar la promesa existente
+    // para evitar el error de PDF.js: "Cannot use the same canvas during multiple render() operations"
     if (this.renderingQueue.has(canvas)) {
+      return this.renderingQueue.get(canvas);
+    }
+
+    const taskPromise = (async () => {
       try {
-        const prevTask = this.renderingQueue.get(canvas);
-        prevTask.cancel();
-      } catch (e) {
-        // ignorar cancelación
+        const page = await this.pdfDoc.getPage(pageNumber);
+
+        // DPR de alta fidelidad para nitidez de vectores y texto sin desenfoque
+        const dpr = this.getOptimalDpr();
+        const targetWidth = displayWidth || this.pageWidth;
+        const targetHeight = displayHeight || this.pageHeight;
+
+        // Escala requerida para encajar en el tamaño deseado con calidad de imprenta
+        const scale = (targetWidth / page.getViewport({ scale: 1 }).width) * dpr;
+        const viewport = page.getViewport({ scale });
+
+        canvas.width = Math.round(viewport.width);
+        canvas.height = Math.round(viewport.height);
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+
+        const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // Fondo blanco inicial antes de renderizar vectores
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: viewport,
+          intent: 'display'
+        };
+
+        const renderTask = page.render(renderContext);
+        await renderTask.promise;
+
+        this.renderedPages.add(cacheKey);
+      } catch (err) {
+        if (err.name !== 'RenderingCancelledException') {
+          console.error(`Error al renderizar página ${pageNumber}:`, err);
+        }
+      } finally {
+        this.renderingQueue.delete(canvas);
       }
-      this.renderingQueue.delete(canvas);
-    }
+    })();
 
-    try {
-      const page = await this.pdfDoc.getPage(pageNumber);
-
-      // DPR de alta fidelidad para nitidez de vectores y texto sin desenfoque
-      const dpr = this.getOptimalDpr();
-      const targetWidth = displayWidth || this.pageWidth;
-      const targetHeight = displayHeight || this.pageHeight;
-
-      // Escala requerida para encajar en el tamaño deseado con calidad de imprenta
-      const scale = (targetWidth / page.getViewport({ scale: 1 }).width) * dpr;
-      const viewport = page.getViewport({ scale });
-
-      canvas.width = Math.round(viewport.width);
-      canvas.height = Math.round(viewport.height);
-      canvas.style.width = '100%';
-      canvas.style.height = '100%';
-
-      const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-
-      // Fondo blanco inicial antes de renderizar vectores
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      const renderContext = {
-        canvasContext: ctx,
-        viewport: viewport,
-        intent: 'display'
-      };
-
-      const renderTask = page.render(renderContext);
-      this.renderingQueue.set(canvas, renderTask);
-
-      await renderTask.promise;
-      this.renderingQueue.delete(canvas);
-      this.renderedPages.add(cacheKey);
-    } catch (err) {
-      if (err.name !== 'RenderingCancelledException') {
-        console.error(`Error al renderizar página ${pageNumber}:`, err);
-      }
-    }
+    this.renderingQueue.set(canvas, taskPromise);
+    return taskPromise;
   }
 }
 
