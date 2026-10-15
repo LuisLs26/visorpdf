@@ -12,6 +12,7 @@
   const bookWrapper = document.getElementById('book-wrapper');
   let bookElement = document.getElementById('book');
   const loader = document.getElementById('loader');
+  const loaderOriginalNodes = Array.from(loader.childNodes);
   const loaderProgressBar = document.getElementById('loader-progress-bar');
   const loaderStatusText = document.getElementById('loader-status-text');
   const edgeLeft = document.getElementById('edge-click-left');
@@ -33,6 +34,9 @@
   let currentPdfSource = 'libro.pdf';
   let isFlipping = false;
   let preloadTimeout = null;
+  let initializationInProgress = false;
+  let preloadGeneration = 0;
+  let resetZoom = () => {};
 
   // Estado del sistema de zoom y paneo
   let zoomScale = 1.0;
@@ -200,9 +204,10 @@
     if (!bookConfig) return;
     const total = bookConfig.numPages;
     let nextPageToLoad = 1;
+    const generation = preloadGeneration;
 
     function loadNext() {
-      if (nextPageToLoad > total) return;
+      if (generation !== preloadGeneration || !bookConfig || nextPageToLoad > Math.min(total, 12)) return;
       if (isFlipping) {
         setTimeout(loadNext, 450);
         return;
@@ -319,15 +324,28 @@
    * Inicializa el flipbook StPageFlip con fidelidad física máxima
    */
   async function initBook(source = 'libro.pdf') {
+    if (initializationInProgress) return;
+    initializationInProgress = true;
+    isBookLoaded = false;
+    isFlipping = false;
+    preloadGeneration++;
+    clearTimeout(preloadTimeout);
+    const sameSource = source === currentPdfSource && bookConfig && window.pdfBookLoader.pdfDoc;
+    if (!sameSource) lastKnownPageIndex = 0;
     try {
       currentPdfSource = source;
+      if (!document.getElementById('loader-progress-bar')) {
+        loader.replaceChildren(...loaderOriginalNodes);
+      }
       loader.classList.remove('is-hidden');
       if (loaderProgressBar) loaderProgressBar.style.width = '5%';
       if (loaderStatusText) loaderStatusText.textContent = 'Conectando con el libro...';
 
       // 1. Cargar el PDF con seguimiento de progreso en tiempo real
       let pdfMeta;
-      if (typeof source === 'string') {
+      if (sameSource) {
+        pdfMeta = bookConfig;
+      } else if (typeof source === 'string') {
         pdfMeta = await window.pdfBookLoader.loadDocument(source, updateLoadingProgress);
       } else {
         pdfMeta = await window.pdfBookLoader.loadFromFile(source);
@@ -369,6 +387,9 @@
       }
       bookElement.innerHTML = '';
 
+      await Promise.allSettled(window.pdfBookLoader.renderingQueue.values());
+      window.pdfBookLoader.renderedPages.clear();
+
       // 5. Crear elementos DOM para cada página dentro de #book
       buildPageElements(pdfMeta.numPages, dimensions);
 
@@ -398,7 +419,6 @@
 
       // 7. REGISTRAR EVENTOS ANTES de loadFromHTML para no perder el evento 'init'
       pageFlipInstance.on('init', () => {
-        dismissLoader();
         updatePhysicalThickness(lastKnownPageIndex || 0, pdfMeta.numPages);
         startBackgroundPreload();
       });
@@ -434,6 +454,12 @@
         scheduleNextPagesPreload(currentPage);
       });
 
+      // Ensure the visible pages are painted before revealing the book.
+      const initialIndex = lastKnownPageIndex || 0;
+      await Promise.all([initialIndex + 1, initialIndex + 2].map(page =>
+        window.pdfBookLoader.renderPageToCanvas(page, document.getElementById(`canvas-page-${page}`), bookConfig.pageWidth, bookConfig.pageHeight)
+      ));
+
       // 8. Cargar páginas HTML en el motor 3D
       const pageElements = bookElement.querySelectorAll('.page');
       if (pageElements.length > 0) {
@@ -446,12 +472,13 @@
       // 10. Descartar cargador
       dismissLoader();
       updatePhysicalThickness(lastKnownPageIndex || 0, pdfMeta.numPages);
-      setTimeout(dismissLoader, 300);
+
 
       // 11. Precargar páginas contiguas
       scheduleNextPagesPreload(lastKnownPageIndex || 0);
 
     } catch (error) {
+      loader.classList.remove('is-hidden');
       console.error('Error crítico al inicializar Visor Libro:', error);
       loader.innerHTML = `
         <div style="color: #ff7675; text-align: center; padding: 20px; max-width: 400px; font-size: 14px; line-height: 1.6;">
@@ -459,6 +486,8 @@
           <p style="color: #aaa; font-size: 13px;">Asegúrate de que <code>libro.pdf</code> esté en la carpeta raíz, o arrastra un archivo PDF directamente sobre esta ventana.</p>
         </div>
       `;
+    } finally {
+      initializationInProgress = false;
     }
   }
 
@@ -498,6 +527,7 @@
         case 'ArrowRight':
         case 'ArrowDown':
         case 'PageDown':
+        case ' ':
           e.preventDefault();
           flipNextSafely();
           break;
@@ -572,7 +602,7 @@
       }
     }
 
-    function resetZoom() {
+    resetZoom = function () {
       zoomScale = 1.0;
       panX = 0;
       panY = 0;
@@ -705,7 +735,7 @@
         const newDims = calculateOptimalBookDimensions(bookConfig.aspectRatio);
         const diffW = Math.abs(newDims.pageWidth - bookConfig.pageWidth);
         const diffH = Math.abs(newDims.pageHeight - bookConfig.pageHeight);
-        if (diffW > 25 || diffH > 25) {
+        if (diffW > 25 || diffH > 25 || newDims.isMobilePortrait !== bookConfig.isMobilePortrait) {
           initBook(currentPdfSource);
         }
       }, 400);

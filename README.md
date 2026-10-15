@@ -62,8 +62,8 @@ Para cambiar el contenido del libro:
 3. Selecciona el repositorio **`LuisLs26/visorpdf`**.
 4. En la configuración de compilación (*Build settings*):
    - **Framework preset**: `None`
-   - **Build command**: *(dejar en blanco)*
-   - **Build output directory**: `/` (o déjalo en blanco para usar la raíz)
+   - **Build command**: `npm run build`
+   - **Build output directory**: `dist`
 5. Haz clic en **Save and Deploy**. Tu visor estará publicado en segundos bajo un subdominio `.pages.dev` gratuito y con CDN ultrarrápido a nivel global.
 
 ---
@@ -74,3 +74,9 @@ Para cambiar el contenido del libro:
 2. En **Build and deployment** > **Source**, elige **Deploy from a branch**.
 3. Selecciona la rama **`main`** y carpeta **`/(root)`**.
 4. Guarda los cambios. Tu visor estará disponible en `https://luisls26.github.io/visorpdf/`.
+
+## PDF grandes y verificación local
+
+Cloudflare Pages limita cada archivo a 25 MiB. `npm run build` genera `dist/` y divide automáticamente los PDF grandes en fragmentos de hasta 20 MiB, sin alterar el documento original ni su calidad. El visor recompone los bytes al cargar. Publica únicamente `dist/`, nunca la raíz. En un proyecto existente de Cloudflare, cambia el comando de compilación a `npm run build` y la salida a `dist`, y vuelve a desplegar.
+
+Ejecuta `npm test` para comprobar la integridad de los fragmentos y su carga. El desarrollo con `npm start` y GitHub Pages desde la raíz siguen usando el PDF original.

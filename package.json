@@ -5,7 +5,9 @@
   "main": "index.html",
   "scripts": {
     "start": "node -e \"const http=require('http'),fs=require('fs'),path=require('path'),m={'.html':'text/html','.css':'text/css','.js':'application/javascript','.pdf':'application/pdf'};http.createServer((q,s)=>{let f=path.join(__dirname,decodeURIComponent(q.url==='/'?'/index.html':q.url.split('?')[0]));fs.readFile(f,(e,d)=>{if(e){s.writeHead(404);s.end('Not found')}else{s.writeHead(200,{'Content-Type':m[path.extname(f)]||'application/octet-stream'});s.end(d)}})}).listen(3000,()=>console.log('Visor Libro activo en http://localhost:3000'))\"",
-    "dev": "npm start"
+    "dev": "npm start",
+    "build": "node scripts/build.cjs",
+    "test": "node scripts/check.cjs"
   },
   "keywords": [
     "pdf",

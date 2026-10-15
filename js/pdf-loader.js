@@ -28,19 +28,21 @@ class PDFBookLoader {
       throw new Error('PDF.js no está disponible.');
     }
 
+    await this.resetDocument();
+
     const candidateUrls = [url, 'document.pdf', 'book.pdf'];
     let loadedSuccessfully = false;
 
     for (const candidate of candidateUrls) {
       try {
-        const fetchUrl = candidate.includes('?') ? candidate : `${candidate}?v=${Date.now()}`;
+        const data = await this.loadParts(candidate, onProgress);
         const loadingTaskCandidate = window.pdfjsLib.getDocument({
-          url: fetchUrl,
+          ...(data ? { data } : { url: candidate }),
           rangeChunkSize: 65536,
           disableAutoFetch: false
         });
 
-        if (onProgress) {
+        if (onProgress && !data) {
           loadingTaskCandidate.onProgress = ({ loaded, total }) => {
             if (total > 0) {
               const pct = Math.min(99, Math.round((loaded / total) * 100));
@@ -82,6 +84,7 @@ class PDFBookLoader {
    * Carga desde un archivo subido por el usuario (drag & drop o selector de archivo)
    */
   async loadFromFile(file) {
+    await this.resetDocument();
     const arrayBuffer = await file.arrayBuffer();
     const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
     this.pdfDoc = await loadingTask.promise;
@@ -102,6 +105,48 @@ class PDFBookLoader {
       height: this.pageHeight,
       aspectRatio: this.pageAspectRatio
     };
+  }
+
+  async resetDocument() {
+    await Promise.allSettled(this.renderingQueue.values());
+    if (this.pdfDoc) await this.pdfDoc.destroy();
+    this.pdfDoc = null;
+    this.numPages = 0;
+    this.renderedPages.clear();
+    this.renderingQueue.clear();
+    this.pageCache.clear();
+  }
+
+  // Large PDFs are published as byte-exact pieces under the Pages asset limit.
+  async loadParts(url, onProgress) {
+    const manifestUrl = new URL(url, document.baseURI);
+    manifestUrl.pathname += '.manifest.json';
+    const response = await fetch(manifestUrl, { cache: 'no-cache' });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`Error de manifiesto: ${response.status}`);
+    // Some static hosts return index.html for missing paths.
+    if (!(response.headers.get('content-type') || '').includes('application/json')) return null;
+    const manifest = await response.json();
+    if (!Number.isSafeInteger(manifest.size) || manifest.size <= 0 ||
+        !Array.isArray(manifest.parts) || !manifest.parts.length ||
+        manifest.parts.some(part => !Number.isSafeInteger(part.size) || part.size <= 0) ||
+        manifest.parts.reduce((sum, part) => sum + part.size, 0) !== manifest.size) {
+      throw new Error('Manifiesto PDF inválido.');
+    }
+    const data = new Uint8Array(manifest.size);
+    let offset = 0;
+    for (const part of manifest.parts) {
+      const partUrl = new URL(part.file, manifestUrl);
+      if (partUrl.origin !== manifestUrl.origin) throw new Error('Origen PDF inválido.');
+      const result = await fetch(partUrl);
+      if (!result.ok) throw new Error(`Error de descarga PDF: ${result.status}`);
+      const bytes = new Uint8Array(await result.arrayBuffer());
+      if (bytes.length !== part.size) throw new Error('Fragmento PDF incompleto.');
+      data.set(bytes, offset);
+      offset += bytes.length;
+      if (onProgress) onProgress(Math.min(99, Math.round(offset / data.length * 100)), offset, data.length);
+    }
+    return data;
   }
 
   /**
