@@ -9,7 +9,7 @@ fs.mkdirSync(out, { recursive: true });
 // Only remove our known build directory, never the source PDF.
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out);
-for (const name of ['index.html', 'css', 'js', 'lib']) {
+for (const name of ['index.html', '_headers', 'css', 'js', 'lib']) {
   fs.cpSync(path.join(root, name), path.join(out, name), { recursive: true });
 }
 const pdf = fs.readFileSync(path.join(root, 'libro.pdf'));

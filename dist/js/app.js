@@ -1,6 +1,6 @@
 /**
  * Visor Libro - Motor Principal de Visualización
- * Orquestación de StPageFlip, PDF.js, controles físicos, zoom, pantalla completa y audio.
+ * Orquestación de StPageFlip, PDF.js, controles físicos, interacción táctil y audio.
  */
 
 (function () {
@@ -36,24 +36,15 @@
   let preloadTimeout = null;
   let initializationInProgress = false;
   let preloadGeneration = 0;
-  let resetZoom = () => {};
-
-  // Estado del sistema de zoom y paneo
-  let zoomScale = 1.0;
-  const MIN_ZOOM = 1.0;
-  const MAX_ZOOM = 3.2;
-  let panX = 0;
-  let panY = 0;
-  let isPanning = false;
-  let panStartX = 0;
-  let panStartY = 0;
+  let pendingSource;
+  let navigationPending = false;
 
   /**
    * Calcula las dimensiones óptimas para aprovechar la pantalla sin recortar
    */
   function calculateOptimalBookDimensions(pageAspectRatio) {
-    const screenW = window.innerWidth;
-    const screenH = window.innerHeight;
+    const screenW = document.documentElement.clientWidth || window.innerWidth;
+    const screenH = document.documentElement.clientHeight || window.innerHeight;
     const isMobilePortrait = screenW < 768 && screenH > screenW;
 
     // Margen libre sutil para crear el encuadre inmersivo
@@ -153,20 +144,10 @@
    */
   async function renderSpread(pageIndex) {
     if (!bookConfig) return;
-    const total = bookConfig.numPages;
-    const p1 = pageIndex + 1;
-    const p2 = pageIndex + 2;
-
-    const canvas1 = document.getElementById(`canvas-page-${p1}`);
-    if (canvas1) {
-      window.pdfBookLoader.renderPageToCanvas(p1, canvas1, bookConfig.pageWidth, bookConfig.pageHeight);
-    }
-    if (p2 <= total) {
-      const canvas2 = document.getElementById(`canvas-page-${p2}`);
-      if (canvas2) {
-        window.pdfBookLoader.renderPageToCanvas(p2, canvas2, bookConfig.pageWidth, bookConfig.pageHeight);
-      }
-    }
+    const pages = bookConfig.isMobilePortrait || pageIndex === 0 ? [pageIndex + 1] : [pageIndex + 1, pageIndex + 2];
+    await Promise.all(pages.map(page => window.pdfBookLoader.renderPageToCanvas(
+      page, document.getElementById(`canvas-page-${page}`), bookConfig.pageWidth, bookConfig.pageHeight
+    )));
   }
 
   /**
@@ -176,24 +157,14 @@
     clearTimeout(preloadTimeout);
     preloadTimeout = setTimeout(() => {
       if (isFlipping || !bookConfig) return;
-      const total = bookConfig.numPages;
-
-      const next1 = currentPage + 3;
-      const next2 = currentPage + 4;
-      if (next1 <= total) {
-        const c1 = document.getElementById(`canvas-page-${next1}`);
-        if (c1) window.pdfBookLoader.renderPageToCanvas(next1, c1, bookConfig.pageWidth, bookConfig.pageHeight);
-      }
-      if (next2 <= total) {
-        const c2 = document.getElementById(`canvas-page-${next2}`);
-        if (c2) window.pdfBookLoader.renderPageToCanvas(next2, c2, bookConfig.pageWidth, bookConfig.pageHeight);
-      }
-
-      const prev = currentPage;
-      if (prev >= 1) {
-        const cp = document.getElementById(`canvas-page-${prev}`);
-        if (cp) window.pdfBookLoader.renderPageToCanvas(prev, cp, bookConfig.pageWidth, bookConfig.pageHeight);
-      }
+      const generation = preloadGeneration;
+      const pages = [currentPage + 1, currentPage + 2, currentPage + 3, currentPage + 4, currentPage, currentPage - 1];
+      (async () => {
+        for (const page of pages) {
+          if (generation !== preloadGeneration || isFlipping) return;
+          await window.pdfBookLoader.renderPageToCanvas(page, document.getElementById(`canvas-page-${page}`), bookConfig.pageWidth, bookConfig.pageHeight);
+        }
+      })();
     }, 350);
   }
 
@@ -207,7 +178,7 @@
     const generation = preloadGeneration;
 
     function loadNext() {
-      if (generation !== preloadGeneration || !bookConfig || nextPageToLoad > Math.min(total, 12)) return;
+      if (generation !== preloadGeneration || !bookConfig || nextPageToLoad > Math.min(total, 12) || lastKnownPageIndex > 8) return;
       if (isFlipping) {
         setTimeout(loadNext, 450);
         return;
@@ -244,6 +215,19 @@
    */
   function updatePhysicalThickness(currentIndex, totalPages) {
     if (!thicknessLeft || !thicknessRight) return;
+
+    const portrait = bookConfig && bookConfig.isMobilePortrait;
+    const front = currentIndex === 0;
+    const back = currentIndex >= totalPages - 1;
+    for (const edge of bookWrapper.querySelectorAll('.book-edge-stack')) {
+      edge.style.left = portrait ? '2px' : front ? '50%' : '2px';
+      edge.style.width = portrait || (!front && !back) ? 'calc(100% - 4px)' : 'calc(50% - 2px)';
+    }
+    if (portrait) {
+      if (bookAmbientShadow) { bookAmbientShadow.style.left = '-2%'; bookAmbientShadow.style.width = '104%'; }
+      if (bookSpineCreaseShadow) bookSpineCreaseShadow.style.opacity = '0';
+      return;
+    }
 
     if (currentIndex === 0) {
       // Libro cerrado en portada
@@ -324,7 +308,7 @@
    * Inicializa el flipbook StPageFlip con fidelidad física máxima
    */
   async function initBook(source = 'libro.pdf') {
-    if (initializationInProgress) return;
+    if (initializationInProgress) { pendingSource = source; return; }
     initializationInProgress = true;
     isBookLoaded = false;
     isFlipping = false;
@@ -333,13 +317,22 @@
     const sameSource = source === currentPdfSource && bookConfig && window.pdfBookLoader.pdfDoc;
     if (!sameSource) lastKnownPageIndex = 0;
     try {
-      currentPdfSource = source;
       if (!document.getElementById('loader-progress-bar')) {
         loader.replaceChildren(...loaderOriginalNodes);
       }
       loader.classList.remove('is-hidden');
       if (loaderProgressBar) loaderProgressBar.style.width = '5%';
       if (loaderStatusText) loaderStatusText.textContent = 'Conectando con el libro...';
+
+      // 3. Destruir instancia previa de forma segura antes de crear nuevos elementos
+      if (pageFlipInstance) {
+        try {
+          pageFlipInstance.destroy();
+        } catch (e) {
+          // ignorar
+        }
+        pageFlipInstance = null;
+      }
 
       // 1. Cargar el PDF con seguimiento de progreso en tiempo real
       let pdfMeta;
@@ -351,11 +344,15 @@
         pdfMeta = await window.pdfBookLoader.loadFromFile(source);
       }
 
+      currentPdfSource = source;
       if (loaderStatusText) loaderStatusText.textContent = 'Renderizando portada...';
       if (loaderProgressBar) loaderProgressBar.style.width = '100%';
 
       // 2. Calcular dimensiones óptimas
       const dimensions = calculateOptimalBookDimensions(pdfMeta.aspectRatio);
+      if (!dimensions.isMobilePortrait && lastKnownPageIndex > 0 && lastKnownPageIndex % 2 === 0) {
+        lastKnownPageIndex--;
+      }
       bookConfig = {
         ...pdfMeta,
         ...dimensions
@@ -364,18 +361,9 @@
       // Ajustar dimensiones exactas del wrapper
       const totalWidth = dimensions.isMobilePortrait ? dimensions.pageWidth : dimensions.pageWidth * 2;
       const totalHeight = dimensions.pageHeight;
+      bookWrapper.classList.toggle('is-portrait', dimensions.isMobilePortrait);
       bookWrapper.style.width = `${totalWidth}px`;
       bookWrapper.style.height = `${totalHeight}px`;
-
-      // 3. Destruir instancia previa de forma segura antes de crear nuevos elementos
-      if (pageFlipInstance) {
-        try {
-          pageFlipInstance.destroy();
-        } catch (e) {
-          // ignorar
-        }
-        pageFlipInstance = null;
-      }
 
       // 4. Asegurar que #book siempre exista dentro de bookWrapper (StPageFlip destroy remueve this.block del DOM)
       bookElement = document.getElementById('book');
@@ -436,6 +424,7 @@
           }
         } else if (e.data === 'read') {
           isFlipping = false;
+          scheduleNextPagesPreload(lastKnownPageIndex);
         }
       });
 
@@ -456,9 +445,14 @@
 
       // Ensure the visible pages are painted before revealing the book.
       const initialIndex = lastKnownPageIndex || 0;
-      await Promise.all([initialIndex + 1, initialIndex + 2].map(page =>
-        window.pdfBookLoader.renderPageToCanvas(page, document.getElementById(`canvas-page-${page}`), bookConfig.pageWidth, bookConfig.pageHeight)
-      ));
+      await renderSpread(initialIndex);
+      if (!window.pdfBookLoader.isPageRendered(initialIndex + 1, bookConfig.pageWidth)) {
+        throw new Error('No se pudo renderizar la página inicial.');
+      }
+      // Paint the next turn before enabling drag interactions.
+      for (const page of [initialIndex + 2, initialIndex + 3, initialIndex + 4]) {
+        await window.pdfBookLoader.renderPageToCanvas(page, document.getElementById(`canvas-page-${page}`), bookConfig.pageWidth, bookConfig.pageHeight);
+      }
 
       // 8. Cargar páginas HTML en el motor 3D
       const pageElements = bookElement.querySelectorAll('.page');
@@ -488,29 +482,47 @@
       `;
     } finally {
       initializationInProgress = false;
+      if (pendingSource !== undefined) {
+        const nextSource = pendingSource;
+        pendingSource = undefined;
+        initBook(nextSource);
+      }
     }
   }
 
-  let lastFlipTime = 0;
-  function flipNextSafely() {
-    if (!pageFlipInstance) return;
-    const now = Date.now();
-    if (isFlipping && now - lastFlipTime < 320) return;
-    lastFlipTime = now;
+  async function prepareTurn(targetIndex, action) {
+    if (navigationPending || initializationInProgress || !bookConfig) return;
+    navigationPending = true;
+    const generation = preloadGeneration;
     try {
-      pageFlipInstance.flipNext();
+      await renderSpread(targetIndex);
+      if (generation === preloadGeneration && isBookLoaded && !isFlipping) action();
+    } finally {
+      navigationPending = false;
+    }
+  }
+
+  function flipNextSafely() {
+    if (!pageFlipInstance || !isBookLoaded || isFlipping) return;
+    try {
+      const step = bookConfig.isMobilePortrait || lastKnownPageIndex === 0 ? 1 : 2;
+      prepareTurn(Math.min(bookConfig.numPages - 1, lastKnownPageIndex + step), () => {
+        currentFlipDirection = 'forward';
+        try { pageFlipInstance.flipNext(); } catch (error) { console.warn('No se pudo avanzar:', error); }
+      });
     } catch (e) {
       console.warn('Transición rápida ignorada:', e);
     }
   }
 
   function flipPrevSafely() {
-    if (!pageFlipInstance) return;
-    const now = Date.now();
-    if (isFlipping && now - lastFlipTime < 320) return;
-    lastFlipTime = now;
+    if (!pageFlipInstance || !isBookLoaded || isFlipping) return;
     try {
-      pageFlipInstance.flipPrev();
+      const step = bookConfig.isMobilePortrait ? 1 : 2;
+      prepareTurn(Math.max(0, lastKnownPageIndex - step), () => {
+        currentFlipDirection = 'backward';
+        try { pageFlipInstance.flipPrev(); } catch (error) { console.warn('No se pudo retroceder:', error); }
+      });
     } catch (e) {
       console.warn('Transición rápida ignorada:', e);
     }
@@ -521,7 +533,9 @@
    */
   function setupKeyboardNavigation() {
     window.addEventListener('keydown', (e) => {
-      if (!pageFlipInstance) return;
+      if (!pageFlipInstance || !isBookLoaded) return;
+      if (e.target && (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) return;
+      if (isFlipping) return;
 
       switch (e.key) {
         case 'ArrowRight':
@@ -541,23 +555,19 @@
 
         case 'Home':
           e.preventDefault();
-          try { pageFlipInstance.flip(0); } catch (err) {}
+          prepareTurn(0, () => { try { pageFlipInstance.flip(0); } catch (err) {} });
           break;
 
         case 'End':
           e.preventDefault();
           if (bookConfig) {
-            try { pageFlipInstance.flip(bookConfig.numPages - 1); } catch (err) {}
+            let target = bookConfig.numPages - 1;
+            if (!bookConfig.isMobilePortrait && target > 0 && target % 2 === 0) target--;
+            prepareTurn(target, () => { try { pageFlipInstance.flip(bookConfig.numPages - 1); } catch (err) {} });
           }
           break;
 
-        case 'Escape':
-          // Restablecer zoom si está ampliado
-          if (zoomScale > 1.05) {
-            e.preventDefault();
-            resetZoom();
-          }
-          break;
+
       }
     });
   }
@@ -589,116 +599,42 @@
     }
   }
 
-  /**
-   * Requisito 3: Soporte de zoom con rueda de ratón y paneo sin alterar navegación
-   */
-  function setupZoomAndPan() {
-    function applyTransform() {
-      zoomContainer.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${zoomScale})`;
-      if (zoomScale > 1.05) {
-        zoomContainer.classList.add('is-zoomed');
-      } else {
-        zoomContainer.classList.remove('is-zoomed');
+  /** Keep the kiosk at a fixed scale, while preserving one-finger page turns. */
+  function setupTouchSafety() {
+    let multiTouchGesture = false;
+    const cancelPageTouch = () => {
+      if (pageFlipInstance && pageFlipInstance.getUI) {
+        const ui = pageFlipInstance.getUI();
+        if (ui.cancelTouch) ui.cancelTouch();
       }
-    }
-
-    resetZoom = function () {
-      zoomScale = 1.0;
-      panX = 0;
-      panY = 0;
-      applyTransform();
-    }
-
-    // Zoom con rueda de ratón
-    viewport.addEventListener('wheel', (e) => {
-      // Si la tecla Ctrl está presionada o el usuario hace scroll vertical sobre el libro
-      e.preventDefault();
-
-      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
-      const nextScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomScale * zoomFactor));
-
-      if (Math.abs(nextScale - zoomScale) > 0.01) {
-        zoomScale = nextScale;
-        if (zoomScale <= 1.05) {
-          panX = 0;
-          panY = 0;
-        }
-        applyTransform();
+    };
+    const block = event => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    viewport.addEventListener('wheel', block, { passive: false });
+    viewport.addEventListener('dblclick', block, { capture: true });
+    viewport.addEventListener('gesturestart', block, { passive: false });
+    viewport.addEventListener('gesturechange', block, { passive: false });
+    viewport.addEventListener('touchstart', event => {
+      if (event.touches.length > 1) {
+        multiTouchGesture = true;
+        cancelPageTouch();
+        block(event);
       }
-    }, { passive: false });
-
-    // Desactivar zoom al dar doble clic: nunca debe ampliar por doble clic
-    viewport.addEventListener('dblclick', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // Si por alguna razón estaba ampliado (por scroll con rueda), restablecer a tamaño normal 1x
-      if (zoomScale > 1.05) {
-        resetZoom();
+    }, { passive: false, capture: true });
+    viewport.addEventListener('touchmove', event => {
+      if (multiTouchGesture || event.touches.length > 1) block(event);
+    }, { passive: false, capture: true });
+    viewport.addEventListener('touchend', event => {
+      if (multiTouchGesture) {
+        block(event);
+        if (event.touches.length === 0) multiTouchGesture = false;
       }
-    });
-
-    if (bookWrapper) {
-      bookWrapper.addEventListener('dblclick', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (zoomScale > 1.05) {
-          resetZoom();
-        }
-      });
-    }
-
-    // Paneo con ratón al estar ampliado
-    viewport.addEventListener('mousedown', (e) => {
-      if (zoomScale > 1.05) {
-        isPanning = true;
-        panStartX = e.clientX - panX;
-        panStartY = e.clientY - panY;
-      }
-    });
-
-    window.addEventListener('mousemove', (e) => {
-      if (isPanning && zoomScale > 1.05) {
-        panX = e.clientX - panStartX;
-        panY = e.clientY - panStartY;
-        applyTransform();
-      }
-    });
-
-    window.addEventListener('mouseup', () => {
-      isPanning = false;
-    });
-
-    // Soporte táctil básico para zoom (pinch-to-zoom)
-    let initialTouchDist = 0;
-    let initialTouchScale = 1;
-
-    viewport.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        initialTouchDist = Math.hypot(dx, dy);
-        initialTouchScale = zoomScale;
-      }
-    }, { passive: true });
-
-    viewport.addEventListener('touchmove', (e) => {
-      if (e.touches.length === 2 && initialTouchDist > 0) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const currentDist = Math.hypot(dx, dy);
-        const factor = currentDist / initialTouchDist;
-        zoomScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, initialTouchScale * factor));
-        applyTransform();
-      }
-    }, { passive: true });
-
-    viewport.addEventListener('touchend', (e) => {
-      if (e.touches.length < 2) {
-        initialTouchDist = 0;
-        if (zoomScale <= 1.05) {
-          resetZoom();
-        }
-      }
+    }, { passive: false, capture: true });
+    viewport.addEventListener('touchcancel', () => {
+      multiTouchGesture = false;
+      cancelPageTouch();
     }, { passive: true });
   }
 
@@ -716,7 +652,7 @@
       const files = e.dataTransfer.files;
       if (files && files.length > 0) {
         const file = files[0];
-        if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
           initBook(file);
         }
       }
@@ -729,8 +665,12 @@
   function setupResizeHandler() {
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => {
-        if (!isBookLoaded || !bookConfig || isFlipping) return;
+      resizeTimeout = setTimeout(function resizeBook() {
+        if (!bookConfig) return;
+        if (!isBookLoaded || isFlipping || initializationInProgress) {
+          if (initializationInProgress || isFlipping) resizeTimeout = setTimeout(resizeBook, 200);
+          return;
+        }
 
         const newDims = calculateOptimalBookDimensions(bookConfig.aspectRatio);
         const diffW = Math.abs(newDims.pageWidth - bookConfig.pageWidth);
@@ -742,14 +682,39 @@
     });
   }
 
+  // Light follows the pointer without moving the book or affecting hit testing.
+  function setupStudioLight() {
+    let frame = null;
+    let x = 50;
+    let y = 35;
+    viewport.addEventListener('pointermove', (event) => {
+      if (event.pointerType !== 'mouse') return;
+      x = Math.max(0, Math.min(100, event.clientX / window.innerWidth * 100));
+      y = Math.max(0, Math.min(100, event.clientY / window.innerHeight * 100));
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        viewport.style.setProperty('--light-x', `${x}%`);
+        viewport.style.setProperty('--light-y', `${y}%`);
+        frame = null;
+      });
+    }, { passive: true });
+    viewport.addEventListener('pointerleave', () => {
+      x = 50;
+      y = 35;
+      viewport.style.setProperty('--light-x', '50%');
+      viewport.style.setProperty('--light-y', '35%');
+    });
+  }
+
   // Inicialización al cargar el DOM o inmediata si ya está listo
   function start() {
     initBook('libro.pdf');
     setupKeyboardNavigation();
     setupEdgeClickZones();
-    setupZoomAndPan();
+    setupTouchSafety();
     setupDragAndDrop();
     setupResizeHandler();
+    setupStudioLight();
   }
 
   if (document.readyState === 'loading') {

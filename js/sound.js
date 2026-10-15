@@ -13,6 +13,7 @@ class PaperSoundSystem {
     this.audioCtx = null;
     this.decodedBuffers = [];
     this.isInitialized = false;
+    this.initializationPromise = null;
     this.isMuted = false;
     this.lastSoundIndex = 0;
 
@@ -43,15 +44,21 @@ class PaperSoundSystem {
   async init() {
     if (this.isInitialized) {
       if (this.audioCtx && this.audioCtx.state === 'suspended') {
-        this.audioCtx.resume();
+        this.audioCtx.resume().catch(() => {});
       }
       return;
     }
 
+    if (!this.initializationPromise) this.initializationPromise = this.initialize();
+    return this.initializationPromise;
+  }
+
+  async initialize() {
     try {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (AudioContextClass) {
         this.audioCtx = new AudioContextClass();
+        if (this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(() => {});
         await this.loadAcousticBuffers();
       }
     } catch (e) {
@@ -128,6 +135,7 @@ class PaperSoundSystem {
         }
 
         gainNode.connect(this.audioCtx.destination);
+        source.onended = () => { source.disconnect(); gainNode.disconnect(); if (panner) panner.disconnect(); };
         source.start();
         return;
       } catch (e) {
@@ -156,7 +164,7 @@ class PaperSoundSystem {
 
     if (this.audioCtx && this.decodedBuffers.length > 0) {
       try {
-        if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+        if (this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(() => {});
         const buffer = this.decodedBuffers[0];
         const source = this.audioCtx.createBufferSource();
         source.buffer = buffer;
@@ -168,6 +176,7 @@ class PaperSoundSystem {
         source.connect(gainNode);
         gainNode.connect(this.audioCtx.destination);
 
+        source.onended = () => { source.disconnect(); gainNode.disconnect(); };
         source.start(0, 0, 0.12);
       } catch (e) {}
     }

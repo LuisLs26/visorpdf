@@ -13,6 +13,7 @@ class PDFBookLoader {
     this.renderedPages = new Set();
     this.renderingQueue = new Map();
     this.pageCache = new Map();
+    this.canvasCache = new WeakMap();
 
     // Configurar worker de PDF.js local
     if (window.pdfjsLib) {
@@ -115,6 +116,7 @@ class PDFBookLoader {
     this.renderedPages.clear();
     this.renderingQueue.clear();
     this.pageCache.clear();
+    this.canvasCache = new WeakMap();
   }
 
   // Large PDFs are published as byte-exact pieces under the Pages asset limit.
@@ -129,7 +131,7 @@ class PDFBookLoader {
     const manifest = await response.json();
     if (!Number.isSafeInteger(manifest.size) || manifest.size <= 0 ||
         !Array.isArray(manifest.parts) || !manifest.parts.length ||
-        manifest.parts.some(part => !Number.isSafeInteger(part.size) || part.size <= 0) ||
+        manifest.parts.some(part => !Number.isSafeInteger(part.size) || part.size <= 0 || typeof part.file !== 'string') ||
         manifest.parts.reduce((sum, part) => sum + part.size, 0) !== manifest.size) {
       throw new Error('Manifiesto PDF inválido.');
     }
@@ -140,11 +142,36 @@ class PDFBookLoader {
       if (partUrl.origin !== manifestUrl.origin) throw new Error('Origen PDF inválido.');
       const result = await fetch(partUrl);
       if (!result.ok) throw new Error(`Error de descarga PDF: ${result.status}`);
-      const bytes = new Uint8Array(await result.arrayBuffer());
-      if (bytes.length !== part.size) throw new Error('Fragmento PDF incompleto.');
-      data.set(bytes, offset);
-      offset += bytes.length;
-      if (onProgress) onProgress(Math.min(99, Math.round(offset / data.length * 100)), offset, data.length);
+      const reportProgress = () => {
+        if (onProgress) onProgress(Math.min(99, Math.round(offset / data.length * 100)), offset, data.length);
+      };
+      if (result.body && result.body.getReader) {
+        const reader = result.body.getReader();
+        let partLoaded = 0;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (partLoaded + value.length > part.size) throw new Error('Fragmento PDF demasiado grande.');
+            data.set(value, offset);
+            partLoaded += value.length;
+            offset += value.length;
+            reportProgress();
+          }
+          if (partLoaded !== part.size) throw new Error('Fragmento PDF incompleto.');
+        } catch (error) {
+          await reader.cancel().catch(() => {});
+          throw error;
+        } finally {
+          reader.releaseLock();
+        }
+      } else {
+        const bytes = new Uint8Array(await result.arrayBuffer());
+        if (bytes.length !== part.size) throw new Error('Fragmento PDF incompleto.');
+        data.set(bytes, offset);
+        offset += bytes.length;
+        reportProgress();
+      }
     }
     return data;
   }
@@ -164,9 +191,10 @@ class PDFBookLoader {
    * Verifica si una página ya cuenta con su canvas renderizado en alta resolución
    */
   isPageRendered(pageNumber, displayWidth) {
-    const cacheKey = `${pageNumber}-${Math.round(displayWidth)}`;
     const canvas = document.getElementById(`canvas-page-${pageNumber}`);
-    return this.renderedPages.has(cacheKey) && canvas && canvas.width > 10;
+    const key = canvas && this.canvasCache.get(canvas);
+    return !!key && key.startsWith(`${pageNumber}-${Math.round(displayWidth)}-`) &&
+      key.endsWith(`-${this.getOptimalDpr()}`) && canvas.width > 10;
   }
 
   /**
@@ -180,9 +208,11 @@ class PDFBookLoader {
       const pageNum = parseInt(key.split('-')[0], 10);
       if (Math.abs(pageNum - currentPage) > keepRadius) {
         const canvas = document.getElementById(`canvas-page-${pageNum}`);
+        if (canvas && this.renderingQueue.has(canvas)) continue;
         if (canvas) {
           canvas.width = 1;
           canvas.height = 1;
+          this.canvasCache.delete(canvas);
         }
         this.renderedPages.delete(key);
       }
@@ -196,15 +226,16 @@ class PDFBookLoader {
     if (!this.pdfDoc || pageNumber < 1 || pageNumber > this.numPages || !canvas) return;
 
     // Si ya está renderizada con buena resolución y el canvas tiene contenido, evitar trabajo duplicado
-    const cacheKey = `${pageNumber}-${Math.round(displayWidth)}`;
-    if (this.renderedPages.has(cacheKey) && canvas.width > 10) {
+    const cacheKey = `${pageNumber}-${Math.round(displayWidth)}-${Math.round(displayHeight)}-${this.getOptimalDpr()}`;
+    if (this.canvasCache.get(canvas) === cacheKey && canvas.width > 10) {
       return;
     }
 
     // Si este canvas ya está en proceso de renderizado, reutilizar la promesa existente
     // para evitar el error de PDF.js: "Cannot use the same canvas during multiple render() operations"
     if (this.renderingQueue.has(canvas)) {
-      return this.renderingQueue.get(canvas);
+      await this.renderingQueue.get(canvas);
+      return this.renderPageToCanvas(pageNumber, canvas, displayWidth, displayHeight);
     }
 
     const taskPromise = (async () => {
@@ -217,15 +248,17 @@ class PDFBookLoader {
         const targetHeight = displayHeight || this.pageHeight;
 
         // Escala requerida para encajar en el tamaño deseado con calidad de imprenta
-        const scale = (targetWidth / page.getViewport({ scale: 1 }).width) * dpr;
+        const originalViewport = page.getViewport({ scale: 1 });
+        const scale = Math.min(targetWidth / originalViewport.width, targetHeight / originalViewport.height) * dpr;
         const viewport = page.getViewport({ scale });
 
-        canvas.width = Math.round(viewport.width);
-        canvas.height = Math.round(viewport.height);
+        canvas.width = Math.round(targetWidth * dpr);
+        canvas.height = Math.round(targetHeight * dpr);
         canvas.style.width = '100%';
         canvas.style.height = '100%';
 
-        const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+        const ctx = canvas.getContext('2d', { alpha: false });
+        if (!ctx) throw new Error('No se pudo crear el lienzo PDF.');
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
@@ -236,6 +269,7 @@ class PDFBookLoader {
         const renderContext = {
           canvasContext: ctx,
           viewport: viewport,
+          transform: [1, 0, 0, 1, (canvas.width - viewport.width) / 2, (canvas.height - viewport.height) / 2],
           intent: 'display'
         };
 
@@ -243,6 +277,7 @@ class PDFBookLoader {
         await renderTask.promise;
 
         this.renderedPages.add(cacheKey);
+        this.canvasCache.set(canvas, cacheKey);
       } catch (err) {
         if (err.name !== 'RenderingCancelledException') {
           console.error(`Error al renderizar página ${pageNumber}:`, err);

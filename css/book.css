@@ -33,16 +33,19 @@ html, body {
    ========================================================================== */
 
 .viewport-stage {
+  --light-x: 50%;
+  --light-y: 35%;
   position: relative;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--bg-gradient);
   perspective: 2600px;
   overflow: hidden;
-  touch-action: manipulation;
+  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -55,7 +58,7 @@ html, body {
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.04) 0%, transparent 60%);
+  background-image: radial-gradient(ellipse at var(--light-x) var(--light-y), rgba(230, 218, 197, 0.065) 0%, transparent 62%);
   pointer-events: none;
   z-index: 0;
 }
@@ -73,17 +76,8 @@ html, body {
   justify-content: center;
   transform-origin: center center;
   will-change: transform;
-  transition: transform 0.08s ease-out;
-  touch-action: manipulation;
+  touch-action: none;
   z-index: 1;
-}
-
-.zoom-container.is-zoomed {
-  cursor: grab;
-}
-
-.zoom-container.is-zoomed:active {
-  cursor: grabbing;
 }
 
 /* ==========================================================================
@@ -96,6 +90,18 @@ html, body {
   align-items: center;
   justify-content: center;
   will-change: transform;
+}
+
+.book-wrapper::after {
+  content: "";
+  position: absolute;
+  inset: 8px -10px -12px;
+  border-radius: 10px;
+  background: radial-gradient(ellipse at 50% 100%, rgba(0, 0, 0, 0.6), transparent 70%);
+  filter: blur(14px);
+  transform: translateY(12px);
+  pointer-events: none;
+  z-index: 0;
 }
 
 /* Sombra ambiental de contacto sobre la mesa */
@@ -287,6 +293,19 @@ html, body {
   background-color: var(--paper-bg);
 }
 
+/* Fine paper grain sits over the PDF at low opacity; the bitmap stays untouched. */
+.page-inner .page-content::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-radial-gradient(circle at 17% 31%, rgba(94, 75, 49, 0.15) 0 0.45px, transparent 0.6px 3px);
+  background-size: 7px 9px;
+  opacity: 0.11;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  z-index: 2;
+}
+
 /* Canvas del PDF en máxima resolución y fidelidad vectorial */
 .page-canvas {
   width: 100%;
@@ -414,7 +433,8 @@ html, body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 45%, rgba(0,0,0,0.08) 100%);
+  background: radial-gradient(ellipse at var(--light-x, 50%) var(--light-y, 35%), rgba(255, 246, 225, 0.13), transparent 65%),
+              linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 45%, rgba(0,0,0,0.08) 100%);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12),
               inset 0 0 15px rgba(0, 0, 0, 0.25);
   pointer-events: none;
@@ -467,6 +487,7 @@ html, body {
   left: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -479,6 +500,10 @@ html, body {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+}
+
+.loader-overlay.is-hidden .loader-page {
+  animation-play-state: paused;
 }
 
 .loader-box {
@@ -602,6 +627,14 @@ html, body {
   }
   .edge-click-zone {
     width: 12vw;
+  }
+}
+
+/* Comfortable touch targets on a large horizontal display, including hybrid PCs. */
+@media (any-pointer: coarse) and (min-width: 769px) {
+  .edge-click-zone {
+    width: clamp(72px, 6vw, 160px);
+    max-width: 160px;
   }
 }
 

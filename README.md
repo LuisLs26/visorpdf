@@ -20,7 +20,7 @@ Un visor web inmersivo de documentos PDF diseñado exclusivamente para simular l
   - Arrastre táctil y con ratón desde las esquinas de las páginas.
   - Clic en los extremos izquierdo y derecho de la pantalla para pasar páginas.
   - Navegación completa por teclado (Flechas `←` / `→`, `Espacio`, `RePág` / `AvPág`, `Inicio` / `Fin`).
-  - **Zoom & Paneo**: Rueda del ratón o pellizco táctil para ampliar detalles sin perder el control de la lectura (tecla `Esc` para reiniciar zoom).
+  - Escala fija para pantallas táctiles: pellizco, doble toque y rueda no amplían el libro.
 - **Rendimiento y Nitidez (HiDPI / Retina)**:
   - Renderizado vectorial de alta resolución con PDF.js respetando colores y calidad original.
   - Carga progresiva y precarga en segundo plano de páginas adyacentes para una respuesta inmediata.
@@ -49,9 +49,6 @@ Para cambiar el contenido del libro:
 | **Página anterior** | Flecha Izquierda (`←`), Flecha Arriba (`↑`), `RePág` o clic en el borde izquierdo |
 | **Ir a portada** | Tecla `Inicio` (`Home`) |
 | **Ir a contraportada** | Tecla `Fin` (`End`) |
-| **Zoom in / out** | Rueda del ratón (`Scroll`) o pellizco táctil |
-| **Moverse al tener zoom** | Arrastrar con el botón principal del ratón |
-| **Restablecer zoom** | Tecla `Esc` |
 
 ---
 
@@ -82,3 +79,9 @@ La carpeta `dist/` se incluye en Git para que Cloudflare también pueda desplega
 Cloudflare Pages limita cada archivo a 25 MiB. `npm run build` genera `dist/` y divide automáticamente los PDF grandes en fragmentos de hasta 20 MiB, sin alterar el documento original ni su calidad. El visor recompone los bytes al cargar. Publica únicamente `dist/`, nunca la raíz. En un proyecto existente de Cloudflare, cambia el comando de compilación a `npm run build` y la salida a `dist`, y vuelve a desplegar.
 
 Ejecuta `npm test` para comprobar la integridad de los fragmentos y su carga. El desarrollo con `npm start` y GitHub Pages desde la raíz siguen usando el PDF original.
+
+## Pantalla táctil grande horizontal
+
+El visor conserva dos páginas enfrentadas en horizontal. Desliza o arrastra una hoja para pasarla, o toca las zonas laterales de la pantalla. El libro mantiene una escala fija: el pellizco, el doble toque y la rueda no producen zoom. Los gestos con varios dedos se bloquean para evitar ampliaciones y cambios de página accidentales.
+
+La iluminación y los reflejos se generan con CSS; el PDF conserva sus bytes originales y el renderizado HiDPI. Las pruebas incluyen navegación, bloqueo de zoom, caché de lienzos, concurrencia de audio, copias de páginas durante las animaciones y descargas incompletas.
