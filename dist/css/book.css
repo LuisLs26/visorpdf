@@ -1,0 +1,607 @@
+/* ==========================================================================
+   VISOR LIBRO - MÁXIMO REALISMO FÍSICO 3D Y ACÚSTICA INMERSIVA
+   ========================================================================== */
+
+:root {
+  --bg-gradient: radial-gradient(ellipse at 50% 35%, #242730 0%, #14161a 50%, #090a0d 100%);
+  --paper-bg: #faf8f5;
+  --spine-crease-width: 68px;
+  --book-shadow-ambient: 0 40px 90px -15px rgba(0, 0, 0, 0.85),
+                         0 20px 45px -10px rgba(0, 0, 0, 0.70),
+                         0 0 130px rgba(0, 0, 0, 0.50);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #08090c;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ==========================================================================
+   ESCENARIO AMBIENTAL (MESA DE ESTUDIO CON LUZ CENITAL SUAVE)
+   ========================================================================== */
+
+.viewport-stage {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-gradient);
+  perspective: 2600px;
+  overflow: hidden;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Microtextura ambiental de madera noble / escritorio oscuro */
+.viewport-stage::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.04) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ==========================================================================
+   CONTENEDOR DE ZOOM Y PANEO
+   ========================================================================== */
+
+.zoom-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center center;
+  will-change: transform;
+  transition: transform 0.08s ease-out;
+  touch-action: manipulation;
+  z-index: 1;
+}
+
+.zoom-container.is-zoomed {
+  cursor: grab;
+}
+
+.zoom-container.is-zoomed:active {
+  cursor: grabbing;
+}
+
+/* ==========================================================================
+   ENVOLTORIO DEL LIBRO FÍSICO Y ELEMENTOS SKEUOMÓRFICOS
+   ========================================================================== */
+
+.book-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+}
+
+/* Sombra ambiental de contacto sobre la mesa */
+.book-ambient-shadow {
+  position: absolute;
+  top: 3%;
+  left: -2%;
+  width: 104%;
+  height: 97%;
+  box-shadow: var(--book-shadow-ambient);
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: 0;
+  transition: left 0.4s cubic-bezier(0.25, 1, 0.5, 1),
+              width 0.4s cubic-bezier(0.25, 1, 0.5, 1),
+              opacity 0.4s ease;
+}
+
+/* Sombra central del lomo en contacto con la mesa */
+.book-spine-crease-shadow {
+  position: absolute;
+  top: 1%;
+  left: 50%;
+  width: 28px;
+  height: 98%;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 90%);
+  filter: blur(4px);
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.9;
+  transition: opacity 0.4s ease;
+}
+
+/* ==========================================================================
+   BASE DE TAPA DURA (CARCASA QUE SOBRESALE DEL PAPEL - CEJA DE LA TAPA)
+   ========================================================================== */
+
+.book-hardcover-base {
+  position: absolute;
+  top: -5px;
+  left: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 10px);
+  background: linear-gradient(135deg, #1b1d22 0%, #111215 50%, #0d0e11 100%);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+              inset 0 1px 2px rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  z-index: 1;
+  transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Cabezada bordada tradicional (tela visible en los extremos superior e inferior del lomo) */
+.hardcover-spine-head,
+.hardcover-spine-tail {
+  position: absolute;
+  left: 50%;
+  width: 26px;
+  height: 5px;
+  transform: translateX(-50%);
+  background: repeating-linear-gradient(
+    to right,
+    #9c2727 0px,
+    #9c2727 2px,
+    #f1dfa8 2px,
+    #f1dfa8 4px
+  );
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  z-index: 2;
+  transition: opacity 0.4s ease;
+}
+
+.hardcover-spine-head {
+  top: -2px;
+}
+
+.hardcover-spine-tail {
+  bottom: -2px;
+}
+
+/* ==========================================================================
+   BLOQUES Y CANTOS DE HOJAS FÍSICAS (PÁGINAS APILADAS CON PERSPECTIVA)
+   ========================================================================== */
+
+/* Cantos superior e inferior del bloque de hojas */
+.book-edge-stack {
+  position: absolute;
+  left: 2px;
+  width: calc(100% - 4px);
+  height: 4px;
+  background: repeating-linear-gradient(
+    to right,
+    #ded7c9 0px,
+    #c5baa7 1px,
+    #efeae0 2px,
+    #bbb09e 3px
+  );
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3) inset;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.9;
+}
+
+.book-edge-top {
+  top: -3px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(to right, #ccc4b4 0%, #eee8dc 45%, #9c917f 50%, #eee8dc 55%, #ccc4b4 100%);
+}
+
+.book-edge-bottom {
+  bottom: -3px;
+  border-radius: 0 0 2px 2px;
+  background: linear-gradient(to right, #ccc4b4 0%, #eee8dc 45%, #9c917f 50%, #eee8dc 55%, #ccc4b4 100%);
+}
+
+/* Espesor lateral (fore-edge con páginas apiladas y sombra 3D) */
+.book-side-thickness {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 12px;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0.92;
+  transition: opacity 0.3s ease, width 0.3s ease;
+}
+
+.book-thickness-left {
+  left: -11px;
+  background: repeating-linear-gradient(
+    to bottom,
+    #f2ede4 0px,
+    #d1c6b5 1px,
+    #e8e1d5 2px,
+    #b9ac98 3px
+  );
+  box-shadow: -4px 0 8px rgba(0, 0, 0, 0.45) inset,
+              -6px 6px 14px rgba(0, 0, 0, 0.6);
+  border-radius: 3px 0 0 3px;
+  transform: perspective(600px) rotateY(18deg);
+}
+
+.book-thickness-right {
+  right: -11px;
+  background: repeating-linear-gradient(
+    to bottom,
+    #f2ede4 0px,
+    #d1c6b5 1px,
+    #e8e1d5 2px,
+    #b9ac98 3px
+  );
+  box-shadow: 4px 0 8px rgba(0, 0, 0, 0.45) inset,
+              6px 6px 14px rgba(0, 0, 0, 0.6);
+  border-radius: 0 3px 3px 0;
+  transform: perspective(600px) rotateY(-18deg);
+}
+
+/* ==========================================================================
+   CONTENEDOR CENTRAL DE STPAGEFLIP
+   ========================================================================== */
+
+.book-flip-container {
+  position: relative;
+  z-index: 4;
+}
+
+/* ==========================================================================
+   ESTRUCTURA Y DETALLES DE CADA PÁGINA
+   ========================================================================== */
+
+.page {
+  position: absolute;
+  background-color: var(--paper-bg);
+  overflow: hidden;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.2);
+}
+
+.page-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--paper-bg);
+}
+
+/* Canvas del PDF en máxima resolución y fidelidad vectorial */
+.page-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+  z-index: 1;
+  image-rendering: auto;
+}
+
+/* ==========================================================================
+   SOMBRAS PROFUNDAS DEL LOMO (CANALÓN CENTRAL)
+   ========================================================================== */
+
+/* Sombra profunda y tangible del canalón en la página izquierda */
+.page.--left .page-spine-shadow {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--spine-crease-width);
+  background: linear-gradient(
+    to right,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.03) 50%,
+    rgba(0, 0, 0, 0.12) 80%,
+    rgba(0, 0, 0, 0.32) 95%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Sombra profunda y tangible del canalón en la página derecha */
+.page.--right .page-spine-shadow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--spine-crease-width);
+  background: linear-gradient(
+    to left,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.03) 50%,
+    rgba(0, 0, 0, 0.12) 80%,
+    rgba(0, 0, 0, 0.32) 95%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Bisel fino y borde físico de corte del papel en el extremo exterior */
+.page.--left .page-outer-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 14px;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.16) 0%, rgba(0, 0, 0, 0.04) 50%, transparent 100%);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  z-index: 12;
+}
+
+.page.--right .page-outer-edge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  background: linear-gradient(to left, rgba(0, 0, 0, 0.16) 0%, rgba(0, 0, 0, 0.04) 50%, transparent 100%);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  z-index: 12;
+}
+
+/* ==========================================================================
+   DETALLES DE TAPA DURA EN PORTADA Y CONTRAPORTADA
+   ========================================================================== */
+
+.page.--hard {
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+}
+
+.page-cover-front {
+  border-radius: 2px 7px 7px 2px;
+}
+
+.page-cover-back {
+  border-radius: 7px 2px 2px 7px;
+}
+
+/* Hendidura física de la bisagra de la tapa dura (ranura de articulación a 22px del lomo) */
+.page-cover-front .page-cover-hinge-crease {
+  position: absolute;
+  top: 0;
+  left: 22px;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(to right, rgba(0,0,0,0.22) 0%, rgba(255,255,255,0.08) 50%, rgba(0,0,0,0.18) 100%);
+  box-shadow: 0 0 2px rgba(0,0,0,0.4);
+  pointer-events: none;
+  z-index: 13;
+}
+
+.page-cover-back .page-cover-hinge-crease {
+  position: absolute;
+  top: 0;
+  right: 22px;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(to left, rgba(0,0,0,0.22) 0%, rgba(255,255,255,0.08) 50%, rgba(0,0,0,0.18) 100%);
+  box-shadow: 0 0 2px rgba(0,0,0,0.4);
+  pointer-events: none;
+  z-index: 13;
+}
+
+/* Brillo y relieve sutil en tapas duras */
+.page-cover-sheen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 45%, rgba(0,0,0,0.08) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+              inset 0 0 15px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  z-index: 14;
+}
+
+/* ==========================================================================
+   ZONAS DE CLIC EN EXTREMOS PARA NAVEGACIÓN TÁCTIL Y DE RATÓN
+   ========================================================================== */
+
+.edge-click-zone {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 7vw;
+  min-width: 50px;
+  max-width: 110px;
+  z-index: 20;
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.edge-left {
+  left: 0;
+}
+
+.edge-right {
+  right: 0;
+}
+
+.edge-left:hover {
+  cursor: w-resize;
+}
+
+.edge-right:hover {
+  cursor: e-resize;
+}
+
+/* ==========================================================================
+   INDICADOR DE CARGA ULTRA-MINIMALISTA CON BARRA DE PROGRESO
+   ========================================================================== */
+
+.loader-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #08090b;
+  z-index: 100;
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.5s;
+}
+
+.loader-overlay.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.loader-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+}
+
+.loader-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 220px;
+}
+
+.loader-progress-track {
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.loader-progress-bar {
+  width: 0%;
+  height: 100%;
+  background: #e2ddd3;
+  border-radius: 4px;
+  transition: width 0.2s ease-out;
+  box-shadow: 0 0 10px rgba(226, 221, 211, 0.6);
+}
+
+.loader-status-text {
+  font-size: 13px;
+  font-weight: 400;
+  color: #a4a29d;
+  letter-spacing: 0.5px;
+  margin: 0;
+  text-align: center;
+  font-family: inherit;
+}
+
+.book-loader-spine {
+  position: relative;
+  width: 60px;
+  height: 44px;
+  perspective: 200px;
+}
+
+.loader-page {
+  position: absolute;
+  top: 0;
+  left: 30px;
+  width: 30px;
+  height: 44px;
+  background: #e2ddd3;
+  border-radius: 0 2px 2px 0;
+  transform-origin: left center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.loader-page-1 {
+  animation: flipLoaderPage 1.6s infinite ease-in-out;
+}
+
+.loader-page-2 {
+  animation: flipLoaderPage 1.6s infinite ease-in-out 0.25s;
+}
+
+.loader-page-3 {
+  animation: flipLoaderPage 1.6s infinite ease-in-out 0.5s;
+}
+
+@keyframes flipLoaderPage {
+  0% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: rotateY(-180deg);
+    opacity: 0.8;
+  }
+  100% {
+    transform: rotateY(-180deg);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   OPTIMIZACIONES PARA BAJOS RECURSOS Y RENDIMIENTO DE GPU (HARDWARE ACCEL)
+   ========================================================================== */
+
+.page {
+  contain: layout paint style;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.page-content {
+  contain: layout paint;
+  transform: translateZ(0);
+}
+
+/* ==========================================================================
+   RESPONSIVIDAD Y OPTIMIZACIÓN MULTIDISPOSITIVO
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  :root {
+    --spine-crease-width: 38px;
+  }
+  .book-side-thickness,
+  .book-edge-stack,
+  .book-hardcover-base {
+    display: none;
+  }
+  .edge-click-zone {
+    width: 12vw;
+  }
+}
+

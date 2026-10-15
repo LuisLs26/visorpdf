@@ -77,6 +77,8 @@ Para cambiar el contenido del libro:
 
 ## PDF grandes y verificación local
 
+La carpeta `dist/` se incluye en Git para que Cloudflare también pueda desplegar cuando el comando de compilación esté vacío. Después de cambiar el código o `libro.pdf`, ejecuta `npm run build` y guarda también los cambios de `dist/` en el mismo commit. Se recomienda mantener `npm run build` como comando de compilación en Cloudflare para regenerarla automáticamente.
+
 Cloudflare Pages limita cada archivo a 25 MiB. `npm run build` genera `dist/` y divide automáticamente los PDF grandes en fragmentos de hasta 20 MiB, sin alterar el documento original ni su calidad. El visor recompone los bytes al cargar. Publica únicamente `dist/`, nunca la raíz. En un proyecto existente de Cloudflare, cambia el comando de compilación a `npm run build` y la salida a `dist`, y vuelve a desplegar.
 
 Ejecuta `npm test` para comprobar la integridad de los fragmentos y su carga. El desarrollo con `npm start` y GitHub Pages desde la raíz siguen usando el PDF original.

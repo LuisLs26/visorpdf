@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+  <title>Visor Libro</title>
+  <meta name="description" content="Visor de PDF realista en formato libro físico con animaciones 3D fluidas y sonido de papel.">
+  
+  <!-- Estilos del visor -->
+  <link rel="stylesheet" href="css/book.css">
+  
+  <!-- Librerías locales vendorizadas para funcionamiento 100% estático y offline -->
+  <script src="lib/pdf.min.js"></script>
+  <script src="lib/page-flip.browser.min.js"></script>
+</head>
+<body>
+
+  <!-- Escenario ambiental del libro -->
+  <main id="app-viewport" class="viewport-stage" aria-label="Visor de libro digital">
+    
+    <!-- Contenedor con soporte de zoom y paneo -->
+    <div id="zoom-container" class="zoom-container">
+      
+      <!-- Envoltorio del libro físico con sombra ambiental y lomo -->
+      <div id="book-wrapper" class="book-wrapper">
+        
+        <!-- Sombra realista de contacto debajo del libro -->
+        <div id="book-ambient-shadow" class="book-ambient-shadow"></div>
+        <div id="book-spine-crease-shadow" class="book-spine-crease-shadow" aria-hidden="true"></div>
+        
+        <!-- Base rígida de la tapa dura (se extiende ligeramente más allá de las páginas) -->
+        <div id="book-hardcover-base" class="book-hardcover-base" aria-hidden="true">
+          <div class="hardcover-spine-head"></div>
+          <div class="hardcover-spine-tail"></div>
+        </div>
+
+        <!-- Cantos superior e inferior del bloque de hojas (curvatura hacia el lomo) -->
+        <div class="book-edge-stack book-edge-top" aria-hidden="true"></div>
+        <div class="book-edge-stack book-edge-bottom" aria-hidden="true"></div>
+
+        <!-- Bloque de hojas (espesor físico lateral con perspectiva) -->
+        <div class="book-side-thickness book-thickness-left" aria-hidden="true"></div>
+        <div class="book-side-thickness book-thickness-right" aria-hidden="true"></div>
+
+        <!-- Contenedor StPageFlip donde se insertan las páginas -->
+        <div id="book" class="book-flip-container"></div>
+        
+      </div>
+      
+    </div>
+
+    <!-- Indicador de carga ultra-minimalista y elegante con barra de progreso -->
+    <div id="loader" class="loader-overlay" aria-live="polite">
+      <div class="loader-box">
+        <div class="book-loader-spine">
+          <div class="loader-page loader-page-1"></div>
+          <div class="loader-page loader-page-2"></div>
+          <div class="loader-page loader-page-3"></div>
+        </div>
+        <div class="loader-status">
+          <div class="loader-progress-track">
+            <div id="loader-progress-bar" class="loader-progress-bar"></div>
+          </div>
+          <p id="loader-status-text" class="loader-status-text">Cargando libro...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Zonas invisibles de clic en los extremos para pasar páginas fluidamente -->
+    <button type="button" id="edge-click-left" class="edge-click-zone edge-left" aria-label="Página anterior" tabindex="-1"></button>
+    <button type="button" id="edge-click-right" class="edge-click-zone edge-right" aria-label="Página siguiente" tabindex="-1"></button>
+  </main>
+
+  <!-- Módulos de lógica -->
+  <script src="js/sound.js"></script>
+  <script src="js/pdf-loader.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
