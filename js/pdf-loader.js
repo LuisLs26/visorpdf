@@ -33,8 +33,9 @@ class PDFBookLoader {
 
     for (const candidate of candidateUrls) {
       try {
+        const fetchUrl = candidate.includes('?') ? candidate : `${candidate}?v=${Date.now()}`;
         const loadingTaskCandidate = window.pdfjsLib.getDocument({
-          url: candidate,
+          url: fetchUrl,
           rangeChunkSize: 65536,
           disableAutoFetch: false
         });
