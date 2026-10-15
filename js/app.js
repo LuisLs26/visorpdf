@@ -344,7 +344,7 @@
       };
 
       // Ajustar dimensiones exactas del wrapper
-      const totalWidth = dimensions.pageWidth * 2;
+      const totalWidth = dimensions.isMobilePortrait ? dimensions.pageWidth : dimensions.pageWidth * 2;
       const totalHeight = dimensions.pageHeight;
       bookWrapper.style.width = `${totalWidth}px`;
       bookWrapper.style.height = `${totalHeight}px`;
