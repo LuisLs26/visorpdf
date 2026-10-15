@@ -13,7 +13,7 @@ const original = fs.readFileSync('libro.pdf');
 const manifestPath = 'dist/libro.pdf.manifest.json';
 let downloaded = 0;
 const context = {
-  window: {}, URL, Uint8Array, console,
+  window: {}, URL, Uint8Array, console, AbortController,
   document: { baseURI: 'https://example.test/visorpdf/' },
   fetch: async url => {
     const relative = new URL(url).pathname.replace('/visorpdf/', '');
@@ -49,6 +49,33 @@ vm.runInContext(fs.readFileSync('js/pdf-loader.js', 'utf8'), context);
   context.fetch = async () => ({ ok: true, headers: { get: () => 'application/json' }, json: async () => ({ size: 10, parts: [] }) });
   await assert.rejects(loader.loadParts('libro.pdf'), /inválido/);
   context.fetch = originalFetch;
+  const parallelParts = Array.from({ length: 70 }, (_, index) => ({ file: `${index}.bin`, size: 1 }));
+  let active = 0;
+  let maxActive = 0;
+  context.fetch = async url => {
+    if (String(url).endsWith('.manifest.json')) return {
+      ok: true, headers: { get: () => 'application/json' },
+      json: async () => ({ size: parallelParts.length, parts: parallelParts })
+    };
+    const index = Number(new URL(url).pathname.split('/').pop().replace('.bin', ''));
+    active++;
+    maxActive = Math.max(maxActive, active);
+    return { ok: true, arrayBuffer: async () => {
+      // Complete out of order to exercise byte offsets and worker reuse.
+      await new Promise(resolve => setTimeout(resolve, index % 3 + 1));
+      active--;
+      return new Uint8Array([index]).buffer;
+    } };
+  };
+  let parallelProgress = 0;
+  const parallelData = await loader.loadParts('parallel.pdf', (pct, loaded) => {
+    assert(loaded >= parallelProgress && loaded <= parallelParts.length);
+    parallelProgress = loaded;
+  });
+  assert.equal(maxActive, 32, 'Use exactly 32 simultaneous downloads when enough parts exist');
+  assert.deepEqual(Buffer.from(parallelData), Buffer.from(Array.from({ length: 70 }, (_, index) => index)));
+  assert.equal(parallelProgress, 70);
+  context.fetch = originalFetch;
   // Exercise the streamed download path, including truncation and overflow.
   const sample = new Uint8Array([37, 80, 68, 70, 45, 49]);
   const streamedFetch = size => async url => {
@@ -79,5 +106,5 @@ vm.runInContext(fs.readFileSync('js/pdf-loader.js', 'utf8'), context);
   assert.equal(loader.renderedPages.size, 0);
   assert.equal(loader.pdfDoc, null);
   await require('./regression.cjs')();
-  console.log('OK: sintaxis, integridad del PDF, carga por fragmentos, manifiestos inválidos y limpieza de caché.');
+  console.log('OK: sintaxis, integridad del PDF, 32 descargas simultáneas, progreso, manifiestos inválidos y limpieza de caché.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

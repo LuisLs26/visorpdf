@@ -16,9 +16,10 @@ const pdf = fs.readFileSync(path.join(root, 'libro.pdf'));
 if (pdf.length <= limit) {
   fs.writeFileSync(path.join(out, 'libro.pdf'), pdf);
 } else {
-  const chunkSize = 20 * 1024 * 1024;
+  const chunkSize = 1024 * 1024;
   const version = crypto.createHash('sha256').update(pdf).digest('hex').slice(0, 16);
-  const directory = `pdf-parts/${version}`;
+  // Chunk size belongs in the cache key: old 20 MiB parts must never share URLs.
+  const directory = `pdf-parts/${version}-${chunkSize}`;
   fs.mkdirSync(path.join(out, directory), { recursive: true });
   const parts = [];
   for (let offset = 0; offset < pdf.length; offset += chunkSize) {

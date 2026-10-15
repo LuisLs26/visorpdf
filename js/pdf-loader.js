@@ -137,13 +137,21 @@ class PDFBookLoader {
     }
     const data = new Uint8Array(manifest.size);
     let offset = 0;
-    for (const part of manifest.parts) {
+    const parts = manifest.parts.map(part => {
+      const job = { ...part, offset };
+      offset += part.size;
+      return job;
+    });
+    let downloaded = 0;
+    let nextPart = 0;
+    const controller = new AbortController();
+    const downloadPart = async part => {
       const partUrl = new URL(part.file, manifestUrl);
       if (partUrl.origin !== manifestUrl.origin) throw new Error('Origen PDF inválido.');
-      const result = await fetch(partUrl);
+      const result = await fetch(partUrl, { signal: controller.signal });
       if (!result.ok) throw new Error(`Error de descarga PDF: ${result.status}`);
       const reportProgress = () => {
-        if (onProgress) onProgress(Math.min(99, Math.round(offset / data.length * 100)), offset, data.length);
+        if (onProgress) onProgress(Math.min(99, Math.round(downloaded / data.length * 100)), downloaded, data.length);
       };
       if (result.body && result.body.getReader) {
         const reader = result.body.getReader();
@@ -153,9 +161,9 @@ class PDFBookLoader {
             const { value, done } = await reader.read();
             if (done) break;
             if (partLoaded + value.length > part.size) throw new Error('Fragmento PDF demasiado grande.');
-            data.set(value, offset);
+            data.set(value, part.offset + partLoaded);
             partLoaded += value.length;
-            offset += value.length;
+            downloaded += value.length;
             reportProgress();
           }
           if (partLoaded !== part.size) throw new Error('Fragmento PDF incompleto.');
@@ -168,10 +176,24 @@ class PDFBookLoader {
       } else {
         const bytes = new Uint8Array(await result.arrayBuffer());
         if (bytes.length !== part.size) throw new Error('Fragmento PDF incompleto.');
-        data.set(bytes, offset);
-        offset += bytes.length;
+        data.set(bytes, part.offset);
+        downloaded += bytes.length;
         reportProgress();
       }
+    };
+    // Network concurrency, not CPU threads: each job writes only its own byte range.
+    const workers = Array.from({ length: Math.min(32, parts.length) }, async () => {
+      while (!controller.signal.aborted && nextPart < parts.length) {
+        const part = parts[nextPart++];
+        await downloadPart(part);
+      }
+    });
+    try {
+      await Promise.all(workers);
+    } catch (error) {
+      controller.abort();
+      await Promise.allSettled(workers);
+      throw error;
     }
     return data;
   }
