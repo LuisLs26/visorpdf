@@ -85,3 +85,9 @@ Ejecuta `npm test` para comprobar la integridad de los fragmentos y su carga. El
 El visor conserva dos páginas enfrentadas en horizontal. Desliza o arrastra una hoja para pasarla, o toca las zonas laterales de la pantalla. El libro mantiene una escala fija: el pellizco, el doble toque y la rueda no producen zoom. Los gestos con varios dedos se bloquean para evitar ampliaciones y cambios de página accidentales.
 
 La iluminación y los reflejos se generan con CSS; el PDF conserva sus bytes originales y el renderizado HiDPI. Las pruebas incluyen navegación, bloqueo de zoom, caché de lienzos, concurrencia de audio, copias de páginas durante las animaciones y descargas incompletas.
+
+## Copia local y equipos de gama baja
+
+En HTTPS, el visor guarda los fragmentos del PDF en CacheStorage para reutilizarlos al recargar. Solo consulta el manifiesto pequeño para detectar cambios; una versión nueva del PDF usa otras URLs y no se confunde con la anterior. El indicador distingue entre descargar y abrir la copia guardada. Si el almacenamiento está bloqueado o lleno, continúa por la red. El navegador puede borrar esta copia al limpiar los datos del sitio o recuperar espacio.
+
+En equipos que indican hasta 4 GB de memoria o hasta 4 procesadores lógicos, el visor renderiza una página a la vez y conserva menos páginas alejadas. Los lienzos sin usar ocupan 1×1 píxel y las páginas cercanas se preparan bajo demanda; se mantienen la misma resolución HiDPI, los efectos visuales y los bytes del PDF. Se conserva el máximo de 32 descargas simultáneas.

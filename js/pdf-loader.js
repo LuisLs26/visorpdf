@@ -14,6 +14,12 @@ class PDFBookLoader {
     this.renderingQueue = new Map();
     this.pageCache = new Map();
     this.canvasCache = new WeakMap();
+    const device = window.navigator || {};
+    this.lowResource = (device.deviceMemory > 0 && device.deviceMemory <= 4) ||
+      (device.hardwareConcurrency > 0 && device.hardwareConcurrency <= 4);
+    this.maxConcurrentRenders = this.lowResource ? 1 : 2;
+    this.activeRenders = 0;
+    this.renderWaiters = [];
 
     // Configurar worker de PDF.js local
     if (window.pdfjsLib) {
@@ -123,7 +129,28 @@ class PDFBookLoader {
   async loadParts(url, onProgress) {
     const manifestUrl = new URL(url, document.baseURI);
     manifestUrl.pathname += '.manifest.json';
-    const response = await fetch(manifestUrl, { cache: 'no-cache' });
+    // CacheStorage survives reloads independently of the browser's HTTP cache.
+    // Versioned part URLs keep a new PDF separate from the saved copy.
+    let diskCache = null;
+    try {
+      if (window.caches) diskCache = await window.caches.open('visor-libro-pdf-v1');
+    } catch (error) { /* Private mode / storage restrictions: use the network. */ }
+    let cacheWritable = !!diskCache;
+    const save = async (key, response) => {
+      if (!cacheWritable) return;
+      try { await diskCache.put(key, response); }
+      catch (error) { cacheWritable = false; }
+    };
+    let response;
+    try {
+      response = await fetch(manifestUrl, { cache: 'no-cache' });
+      if (!response.ok && response.status >= 500 && diskCache) {
+        response = await diskCache.match(manifestUrl.href) || response;
+      }
+    } catch (error) {
+      try { response = diskCache && await diskCache.match(manifestUrl.href); } catch (cacheError) {}
+      if (!response) throw error;
+    }
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(`Error de manifiesto: ${response.status}`);
     // Some static hosts return index.html for missing paths.
@@ -135,6 +162,9 @@ class PDFBookLoader {
         manifest.parts.reduce((sum, part) => sum + part.size, 0) !== manifest.size) {
       throw new Error('Manifiesto PDF inválido.');
     }
+    if (diskCache) await save(manifestUrl.href, new Response(JSON.stringify(manifest), {
+      headers: { 'Content-Type': 'application/json' }
+    }));
     const data = new Uint8Array(manifest.size);
     let offset = 0;
     const parts = manifest.parts.map(part => {
@@ -143,16 +173,33 @@ class PDFBookLoader {
       return job;
     });
     let downloaded = 0;
+    let networkBytes = 0;
     let nextPart = 0;
     const controller = new AbortController();
     const downloadPart = async part => {
       const partUrl = new URL(part.file, manifestUrl);
       if (partUrl.origin !== manifestUrl.origin) throw new Error('Origen PDF inválido.');
+      const reportProgress = () => {
+        if (onProgress) onProgress(Math.min(99, Math.round(downloaded / data.length * 100)), downloaded, data.length,
+          networkBytes > 0 ? 'network' : 'cache');
+      };
+      if (diskCache) {
+        try {
+          const cached = await diskCache.match(partUrl.href);
+          if (cached) {
+            const bytes = new Uint8Array(await cached.arrayBuffer());
+            if (bytes.length === part.size) {
+              data.set(bytes, part.offset);
+              downloaded += bytes.length;
+              reportProgress();
+              return;
+            }
+            await diskCache.delete(partUrl.href);
+          }
+        } catch (error) { /* A failed cache read must not prevent reading the book. */ }
+      }
       const result = await fetch(partUrl, { signal: controller.signal });
       if (!result.ok) throw new Error(`Error de descarga PDF: ${result.status}`);
-      const reportProgress = () => {
-        if (onProgress) onProgress(Math.min(99, Math.round(downloaded / data.length * 100)), downloaded, data.length);
-      };
       if (result.body && result.body.getReader) {
         const reader = result.body.getReader();
         let partLoaded = 0;
@@ -164,6 +211,7 @@ class PDFBookLoader {
             data.set(value, part.offset + partLoaded);
             partLoaded += value.length;
             downloaded += value.length;
+            networkBytes += value.length;
             reportProgress();
           }
           if (partLoaded !== part.size) throw new Error('Fragmento PDF incompleto.');
@@ -178,8 +226,12 @@ class PDFBookLoader {
         if (bytes.length !== part.size) throw new Error('Fragmento PDF incompleto.');
         data.set(bytes, part.offset);
         downloaded += bytes.length;
+        networkBytes += bytes.length;
         reportProgress();
       }
+      if (cacheWritable) await save(partUrl.href, new Response(data.subarray(part.offset, part.offset + part.size), {
+        headers: { 'Content-Type': 'application/octet-stream' }
+      }));
     };
     // Network concurrency, not CPU threads: each job writes only its own byte range.
     const workers = Array.from({ length: Math.min(32, parts.length) }, async () => {
@@ -196,6 +248,20 @@ class PDFBookLoader {
       throw error;
     }
     return data;
+  }
+
+  async acquireRenderSlot() {
+    if (this.activeRenders < this.maxConcurrentRenders) {
+      this.activeRenders++;
+      return;
+    }
+    await new Promise(resolve => this.renderWaiters.push(resolve));
+  }
+
+  releaseRenderSlot() {
+    const next = this.renderWaiters.shift();
+    if (next) next();
+    else this.activeRenders--;
   }
 
   /**
@@ -223,8 +289,8 @@ class PDFBookLoader {
    * Libera memoria VRAM de páginas alejadas únicamente en documentos muy extensos
    */
   evictDistantPages(currentPage, keepRadius = 8) {
-    if (!this.numPages || this.numPages <= 50) return;
-    if (this.renderedPages.size < 20) return;
+    if (!this.numPages) return;
+    if (this.lowResource) keepRadius = Math.min(keepRadius, 3);
 
     for (const key of Array.from(this.renderedPages)) {
       const pageNum = parseInt(key.split('-')[0], 10);
@@ -236,6 +302,9 @@ class PDFBookLoader {
           canvas.height = 1;
           this.canvasCache.delete(canvas);
         }
+        const page = this.pageCache.get(pageNum);
+        if (page && page.cleanup) page.cleanup();
+        this.pageCache.delete(pageNum);
         this.renderedPages.delete(key);
       }
     }
@@ -261,6 +330,7 @@ class PDFBookLoader {
     }
 
     const taskPromise = (async () => {
+      await this.acquireRenderSlot();
       try {
         const page = await this.pdfDoc.getPage(pageNumber);
 
@@ -300,12 +370,14 @@ class PDFBookLoader {
 
         this.renderedPages.add(cacheKey);
         this.canvasCache.set(canvas, cacheKey);
+        this.pageCache.set(pageNumber, page);
       } catch (err) {
         if (err.name !== 'RenderingCancelledException') {
           console.error(`Error al renderizar página ${pageNumber}:`, err);
         }
       } finally {
         this.renderingQueue.delete(canvas);
+        this.releaseRenderSlot();
       }
     })();
 

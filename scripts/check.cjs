@@ -106,5 +106,6 @@ vm.runInContext(fs.readFileSync('js/pdf-loader.js', 'utf8'), context);
   assert.equal(loader.renderedPages.size, 0);
   assert.equal(loader.pdfDoc, null);
   await require('./regression.cjs')();
+  await require('./cache-check.cjs')();
   console.log('OK: sintaxis, integridad del PDF, 32 descargas simultáneas, progreso, manifiestos inválidos y limpieza de caché.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

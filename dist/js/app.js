@@ -8,7 +8,6 @@
 
   // Referencias al DOM
   const viewport = document.getElementById('app-viewport');
-  const zoomContainer = document.getElementById('zoom-container');
   const bookWrapper = document.getElementById('book-wrapper');
   let bookElement = document.getElementById('book');
   const loader = document.getElementById('loader');
@@ -126,7 +125,7 @@
 
       pageDiv.innerHTML = `
         <div class="page-content">
-          <canvas class="page-canvas" id="canvas-page-${i}"></canvas>
+          <canvas class="page-canvas" id="canvas-page-${i}" width="1" height="1"></canvas>
           <div class="page-spine-shadow" aria-hidden="true"></div>
           <div class="page-outer-edge" aria-hidden="true"></div>
           ${coverDecorations}
@@ -156,56 +155,19 @@
   function scheduleNextPagesPreload(currentPage) {
     clearTimeout(preloadTimeout);
     preloadTimeout = setTimeout(() => {
-      if (isFlipping || !bookConfig) return;
+      if (isFlipping || !bookConfig || document.hidden) return;
       const generation = preloadGeneration;
       const pages = [currentPage + 1, currentPage + 2, currentPage + 3, currentPage + 4, currentPage, currentPage - 1];
       (async () => {
         for (const page of pages) {
-          if (generation !== preloadGeneration || isFlipping) return;
+          if (generation !== preloadGeneration || isFlipping || document.hidden) return;
           await window.pdfBookLoader.renderPageToCanvas(page, document.getElementById(`canvas-page-${page}`), bookConfig.pageWidth, bookConfig.pageHeight);
+        }
+        if (generation === preloadGeneration && !isFlipping && currentPage === lastKnownPageIndex) {
+          window.pdfBookLoader.evictDistantPages(currentPage + 1);
         }
       })();
     }, 350);
-  }
-
-  /**
-   * Cola de precarga inteligente en segundo plano sin interrumpir la interacción del usuario
-   */
-  function startBackgroundPreload() {
-    if (!bookConfig) return;
-    const total = bookConfig.numPages;
-    let nextPageToLoad = 1;
-    const generation = preloadGeneration;
-
-    function loadNext() {
-      if (generation !== preloadGeneration || !bookConfig || nextPageToLoad > Math.min(total, 12) || lastKnownPageIndex > 8) return;
-      if (isFlipping) {
-        setTimeout(loadNext, 450);
-        return;
-      }
-
-      const canvas = document.getElementById(`canvas-page-${nextPageToLoad}`);
-      if (canvas && !window.pdfBookLoader.isPageRendered(nextPageToLoad, bookConfig.pageWidth)) {
-        window.pdfBookLoader.renderPageToCanvas(
-          nextPageToLoad,
-          canvas,
-          bookConfig.pageWidth,
-          bookConfig.pageHeight
-        ).then(() => {
-          nextPageToLoad++;
-          if (window.requestIdleCallback) {
-            window.requestIdleCallback(loadNext, { timeout: 1500 });
-          } else {
-            setTimeout(loadNext, 300);
-          }
-        });
-      } else {
-        nextPageToLoad++;
-        loadNext();
-      }
-    }
-
-    setTimeout(loadNext, 1000);
   }
 
   const bookAmbientShadow = document.getElementById('book-ambient-shadow');
@@ -282,15 +244,16 @@
     }
   }
 
-  function updateLoadingProgress(percent, loaded, total) {
+  function updateLoadingProgress(percent, loaded, total, source = 'network') {
     if (loaderProgressBar) {
       loaderProgressBar.style.width = `${percent}%`;
     }
     if (loaderStatusText) {
+      const action = source === 'cache' ? 'Abriendo copia guardada' : 'Descargando libro';
       if (total > 0) {
         const mbLoaded = (loaded / (1024 * 1024)).toFixed(1);
         const mbTotal = (total / (1024 * 1024)).toFixed(1);
-        loaderStatusText.textContent = `Cargando libro... ${percent}% (${mbLoaded} / ${mbTotal} MB)`;
+        loaderStatusText.textContent = `${action}... ${percent}% (${mbLoaded} / ${mbTotal} MB)`;
       } else {
         loaderStatusText.textContent = `Cargando libro... ${percent}%`;
       }
@@ -322,7 +285,7 @@
       }
       loader.classList.remove('is-hidden');
       if (loaderProgressBar) loaderProgressBar.style.width = '5%';
-      if (loaderStatusText) loaderStatusText.textContent = 'Conectando con el libro...';
+      if (loaderStatusText) loaderStatusText.textContent = 'Comprobando libro...';
 
       // 3. Destruir instancia previa de forma segura antes de crear nuevos elementos
       if (pageFlipInstance) {
@@ -408,7 +371,6 @@
       // 7. REGISTRAR EVENTOS ANTES de loadFromHTML para no perder el evento 'init'
       pageFlipInstance.on('init', () => {
         updatePhysicalThickness(lastKnownPageIndex || 0, pdfMeta.numPages);
-        startBackgroundPreload();
       });
 
       pageFlipInstance.on('changeState', (e) => {
@@ -424,6 +386,7 @@
           }
         } else if (e.data === 'read') {
           isFlipping = false;
+          window.pdfBookLoader.evictDistantPages(lastKnownPageIndex + 1);
           scheduleNextPagesPreload(lastKnownPageIndex);
         }
       });
@@ -435,9 +398,7 @@
 
         updatePhysicalThickness(currentPage, pdfMeta.numPages);
 
-        if (window.pdfBookLoader && window.pdfBookLoader.evictDistantPages) {
-          window.pdfBookLoader.evictDistantPages(currentPage, 8);
-        }
+
 
         renderSpread(currentPage);
         scheduleNextPagesPreload(currentPage);
@@ -450,7 +411,8 @@
         throw new Error('No se pudo renderizar la página inicial.');
       }
       // Paint the next turn before enabling drag interactions.
-      for (const page of [initialIndex + 2, initialIndex + 3, initialIndex + 4]) {
+      const adjacentPages = window.pdfBookLoader.lowResource ? [initialIndex + 2, initialIndex + 3] : [initialIndex + 2, initialIndex + 3, initialIndex + 4];
+      for (const page of adjacentPages) {
         await window.pdfBookLoader.renderPageToCanvas(page, document.getElementById(`canvas-page-${page}`), bookConfig.pageWidth, bookConfig.pageHeight);
       }
 
