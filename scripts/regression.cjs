@@ -68,6 +68,7 @@ module.exports = async function regressions() {
   // Expose closure functions only in this isolated test; production stays private.
   app = app.replace('  // Inicialización al cargar', `  globalThis.testApp = {
     dimensions: calculateOptimalBookDimensions,
+    buildPages: buildPageElements,
     setup() { setupKeyboardNavigation(); setupTouchSafety(); },
     ready(instance) { pageFlipInstance = instance; isBookLoaded = true; bookConfig = { numPages: 100, pageWidth: 500, pageHeight: 700, isMobilePortrait: false }; },
     setFlipping(value) { isFlipping = value; }
@@ -86,6 +87,25 @@ module.exports = async function regressions() {
   document.documentElement.clientHeight = 2160;
   const large = api.dimensions(1.414);
   assert(!large.isMobilePortrait && large.pageWidth * 2 <= 3840 && large.pageHeight <= 2160);
+  document.createDocumentFragment = () => ({ children: [], appendChild(child) { this.children.push(child); } });
+  document.createElement = () => {
+    const attributes = new Map();
+    const classes = new Set();
+    return { classList: { add: name => classes.add(name), contains: name => classes.has(name) },
+      setAttribute: (name, value) => attributes.set(name, value), getAttribute: name => attributes.get(name) };
+  };
+  const book = element('book');
+  book.appendChild = fragment => { book.childNodes = fragment.children; };
+  api.buildPages(39, {});
+  assert.equal(book.childNodes.length, 39, 'Keep every PDF page and its order for odd-length books');
+  assert.equal(book.childNodes[38].getAttribute('data-density'), 'soft', 'An odd final content page must remain a normal leaf');
+  assert(!book.childNodes[38].classList.contains('page-cover-back'));
+  assert.equal(book.childNodes[38].getAttribute('data-page-num'), 39);
+  api.buildPages(40, {});
+  assert.equal(book.childNodes[39].getAttribute('data-density'), 'hard', 'Retain existing cover behavior for even-length books');
+  api.buildPages(1, {});
+  assert.equal(book.childNodes.length, 1);
+  assert(book.childNodes[0].classList.contains('page-cover-front'));
   api.setup();
   window.pdfBookLoader = { renderPageToCanvas: async () => {} };
   let flips = 0;
@@ -156,5 +176,5 @@ module.exports = async function regressions() {
   vm.runInNewContext(`(function(){${cancelMethod}}).call(touchUI)`, { touchUI });
   assert.equal(touchUI.touchPoint, null);
   assert.equal(stops, 1, 'Starting a pinch must cancel delayed page gestures');
-  console.log('OK: caché por canvas, renders concurrentes, HiDPI, tamaños móvil/escritorio, teclado, bloqueo de zoom, audio y páginas clonadas.');
+  console.log('OK: libros de 1/39/40 páginas, caché por canvas, renders concurrentes, HiDPI, tamaños móvil/escritorio, teclado, bloqueo de zoom, audio y páginas clonadas.');
 };

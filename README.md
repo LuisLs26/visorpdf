@@ -9,7 +9,7 @@ Un visor web inmersivo de documentos PDF diseñado exclusivamente para simular l
 - **Experiencia de Libro Físico Realista**:
   - Animaciones 3D con curvatura y flexión natural de las páginas al pasar.
   - La primera página se presenta como portada individual cerrada. Al abrirse, muestra dos páginas enfrentadas en formato apaisado.
-  - La última página actúa como contraportada dura cerrando el libro.
+  - En documentos de número par de páginas, la última actúa como contraportada dura. Si el número es impar, el último pliego mantiene ambas páginas de contenido sin convertir la última en tapa ni insertar hojas.
   - Efectos visuales de lomo, sombras dinámicas de profundidad, reflejos de luz y grosor físico del bloque de hojas.
 - **Sonido Realista de Papel**:
   - Efecto sonoro de paso de hoja procedural y ultra-suave generado con Web Audio API (sin retrasos, sin archivos externos faltantes y con ligeras variaciones acústicas en cada pasada).

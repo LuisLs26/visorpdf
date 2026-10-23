@@ -1,5 +1,6 @@
 # Dependencias y temporales
 node_modules/
+tmp/
 .DS_Store
 Thumbs.db
 *.log

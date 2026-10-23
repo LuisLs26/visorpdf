@@ -103,7 +103,7 @@
       if (i === 1) {
         pageDiv.setAttribute('data-density', 'hard');
         pageDiv.classList.add('page-cover-front');
-      } else if (i === totalPages) {
+      } else if (i === totalPages && totalPages % 2 === 0) {
         pageDiv.setAttribute('data-density', 'hard');
         pageDiv.classList.add('page-cover-back');
       } else {
@@ -113,7 +113,7 @@
 
       // Estructura interna de contenido y sombras realistas multicapa
       const isFrontCover = (i === 1);
-      const isBackCover = (i === totalPages);
+      const isBackCover = (i === totalPages && totalPages % 2 === 0 && totalPages > 1);
 
       let coverDecorations = '';
       if (isFrontCover || isBackCover) {
@@ -180,7 +180,7 @@
 
     const portrait = bookConfig && bookConfig.isMobilePortrait;
     const front = currentIndex === 0;
-    const back = currentIndex >= totalPages - 1;
+    const back = totalPages > 1 && totalPages % 2 === 0 && currentIndex >= totalPages - 1;
     for (const edge of bookWrapper.querySelectorAll('.book-edge-stack')) {
       edge.style.left = portrait ? '2px' : front ? '50%' : '2px';
       edge.style.width = portrait || (!front && !back) ? 'calc(100% - 4px)' : 'calc(50% - 2px)';
@@ -207,7 +207,7 @@
       if (bookSpineCreaseShadow) bookSpineCreaseShadow.style.opacity = '0';
       if (hardcoverSpineHead) hardcoverSpineHead.style.opacity = '0';
       if (hardcoverSpineTail) hardcoverSpineTail.style.opacity = '0';
-    } else if (currentIndex >= totalPages - 1) {
+    } else if (back) {
       // Libro cerrado en contraportada
       thicknessLeft.style.opacity = '1';
       thicknessLeft.style.width = '14px';
