@@ -277,6 +277,7 @@ html, body {
 
 .page {
   position: absolute;
+  display: none;
   background-color: var(--paper-bg);
   overflow: hidden;
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.2);
@@ -608,7 +609,6 @@ html, body {
 
 .page-content {
   contain: layout paint;
-  transform: translateZ(0);
 }
 
 /* ==========================================================================

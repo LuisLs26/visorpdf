@@ -78,5 +78,13 @@ module.exports = async function cacheChecks() {
   low.evictDistantPages(1);
   assert.equal(farCanvas.width * farCanvas.height, 1, 'Release distant canvases even in short books');
   assert(cleaned);
+  const preparedImage = { tagName: 'IMG', width: 1000, height: 1400, src: 'blob:prepared-page' };
+  ctx.document.getElementById = () => preparedImage;
+  low.renderedPages.add('15-500-700-1.75');
+  low.canvasCache.set(preparedImage, '15-500-700-1.75');
+  low.evictDistantPages(1);
+  assert.equal(preparedImage.width, 1000, 'Never shrink a prepared image while a turn may reference it');
+  assert.equal(preparedImage.height, 1400);
+  assert.equal(preparedImage.src, 'blob:prepared-page');
   console.log('OK: recarga sin descargar PDF, versión nueva, copia local sin red, caché dañada/bloqueada/llena y memoria en gama baja.');
 };

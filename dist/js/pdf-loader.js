@@ -20,6 +20,10 @@ class PDFBookLoader {
     this.maxConcurrentRenders = this.lowResource ? 1 : 2;
     this.activeRenders = 0;
     this.renderWaiters = [];
+    this.documentVersion = '';
+    this.preparedImages = new Map();
+    this.preparedImageTasks = new Map();
+    this.imageCachePromise = null;
 
     // Configurar worker de PDF.js local
     if (window.pdfjsLib) {
@@ -59,6 +63,7 @@ class PDFBookLoader {
         }
 
         this.pdfDoc = await loadingTaskCandidate.promise;
+        if (!this.documentVersion) this.documentVersion = this.pdfDoc.fingerprints?.[0] || '';
         loadedSuccessfully = true;
         break;
       } catch (err) {
@@ -115,6 +120,7 @@ class PDFBookLoader {
   }
 
   async resetDocument() {
+    await Promise.allSettled(this.preparedImageTasks.values());
     await Promise.allSettled(this.renderingQueue.values());
     if (this.pdfDoc) await this.pdfDoc.destroy();
     this.pdfDoc = null;
@@ -123,6 +129,14 @@ class PDFBookLoader {
     this.renderingQueue.clear();
     this.pageCache.clear();
     this.canvasCache = new WeakMap();
+    this.releasePreparedImages();
+    this.preparedImageTasks.clear();
+    this.documentVersion = '';
+  }
+
+  releasePreparedImages() {
+    for (const entry of this.preparedImages.values()) URL.revokeObjectURL(entry.url);
+    this.preparedImages.clear();
   }
 
   // Large PDFs are published as byte-exact pieces under the Pages asset limit.
@@ -162,6 +176,7 @@ class PDFBookLoader {
         manifest.parts.reduce((sum, part) => sum + part.size, 0) !== manifest.size) {
       throw new Error('Manifiesto PDF inválido.');
     }
+    this.documentVersion = `${manifest.parts[0].file}-${manifest.size}`;
     if (diskCache) await save(manifestUrl.href, new Response(JSON.stringify(manifest), {
       headers: { 'Content-Type': 'application/json' }
     }));
@@ -264,6 +279,101 @@ class PDFBookLoader {
     else this.activeRenders--;
   }
 
+  // Rasterize once at full display resolution. PNG is lossless; the browser can
+  // release decoded image surfaces without discarding the prepared page itself.
+  async preparePageImage(pageNumber, image, displayWidth, displayHeight, retry = true) {
+    const key = `${pageNumber}-${Math.round(displayWidth)}-${Math.round(displayHeight)}-${this.getOptimalDpr()}`;
+    if (!this.preparedImages.has(key)) {
+      if (!this.preparedImageTasks.has(key)) {
+        const task = (async () => {
+          let cache = null;
+          let cacheUrl = null;
+          if (window.caches && this.documentVersion) {
+            try {
+              if (!this.imageCachePromise) this.imageCachePromise = window.caches.open('visor-libro-prepared-v1');
+              cache = await this.imageCachePromise;
+              cacheUrl = new URL(`.prepared-pages/${encodeURIComponent(this.documentVersion)}/${key}.png`, document.baseURI).href;
+            } catch (error) { /* Reading must also work with browser storage disabled. */ }
+          }
+          let blob = null;
+          if (cache && retry) {
+            try {
+              const response = await cache.match(cacheUrl);
+              if (response && response.headers.get('Content-Type') === 'image/png') blob = await response.blob();
+              if (blob && !blob.size) blob = null;
+            } catch (error) { /* Fall back to preparing the page from the PDF. */ }
+          }
+          if (!blob) {
+            const staging = document.createElement('canvas');
+            try {
+              await this.renderPageToCanvas(pageNumber, staging, displayWidth, displayHeight);
+              blob = await new Promise((resolve, reject) => staging.toBlob(value => value ? resolve(value) : reject(new Error('No se pudo preparar la página.')), 'image/png'));
+            } finally {
+              staging.width = 1;
+              staging.height = 1;
+              this.canvasCache.delete(staging);
+              const page = this.pageCache.get(pageNumber);
+              if (page && page.cleanup) page.cleanup();
+              this.pageCache.delete(pageNumber);
+              this.renderedPages.delete(key);
+            }
+            if (cache) {
+              try { await cache.put(cacheUrl, new Response(blob, { headers: { 'Content-Type': 'image/png' } })); }
+              catch (error) { /* The in-memory lossless page is still usable. */ }
+            }
+          }
+          this.preparedImages.set(key, { url: URL.createObjectURL(blob), size: blob.size });
+        })();
+        this.preparedImageTasks.set(key, task);
+      }
+      try { await this.preparedImageTasks.get(key); }
+      finally { this.preparedImageTasks.delete(key); }
+    }
+    const prepared = this.preparedImages.get(key);
+    if (image.src !== prepared.url) image.src = prepared.url;
+    image.width = Math.round(displayWidth * this.getOptimalDpr());
+    image.height = Math.round(displayHeight * this.getOptimalDpr());
+    try {
+      await new Promise((resolve, reject) => {
+        if (image.complete) return image.naturalWidth > 0 ? resolve() : reject(new Error('Página preparada inválida.'));
+        const cleanup = () => { image.removeEventListener('load', loaded); image.removeEventListener('error', failed); };
+        const loaded = () => { cleanup(); resolve(); };
+        const failed = () => { cleanup(); reject(new Error('No se pudo abrir la página preparada.')); };
+        image.addEventListener('load', loaded);
+        image.addEventListener('error', failed);
+      });
+    } catch (error) {
+      URL.revokeObjectURL(prepared.url);
+      this.preparedImages.delete(key);
+      if (retry) return this.preparePageImage(pageNumber, image, displayWidth, displayHeight, false);
+      throw error;
+    }
+    return key;
+  }
+
+  async renderPageToImage(pageNumber, image, displayWidth, displayHeight) {
+    const key = await this.preparePageImage(pageNumber, image, displayWidth, displayHeight);
+    try {
+      await image.decode();
+    } catch (error) {
+      if (image.complete && image.naturalWidth > 0) throw error;
+      // A browser may have evicted a damaged cache entry. Retry from the PDF on
+      // the next attempt, keeping the currently displayed spread in place.
+      const entry = this.preparedImages.get(key);
+      if (entry) URL.revokeObjectURL(entry.url);
+      this.preparedImages.delete(key);
+      if (window.caches && this.documentVersion) {
+        try {
+          const cache = await window.caches.open('visor-libro-prepared-v1');
+          await cache.delete(new URL(`.prepared-pages/${encodeURIComponent(this.documentVersion)}/${key}.png`, document.baseURI).href);
+        } catch (cacheError) {}
+      }
+      throw error;
+    }
+    this.canvasCache.set(image, key);
+    this.renderedPages.add(key);
+  }
+
   /**
    * Determina el factor de escala de resolución óptimo.
    * Proporciona nitidez cristalina sin sobrecargar la GPU en animaciones 3D.
@@ -297,6 +407,9 @@ class PDFBookLoader {
       if (Math.abs(pageNum - currentPage) > keepRadius) {
         const canvas = document.getElementById(`canvas-page-${pageNum}`);
         if (canvas && this.renderingQueue.has(canvas)) continue;
+        // Prepared images must retain their source and size while flipping.
+        // Decoded image memory is managed by the browser, not by clearing pixels.
+        if (canvas && canvas.tagName === 'IMG') continue;
         if (canvas) {
           canvas.width = 1;
           canvas.height = 1;
@@ -315,6 +428,7 @@ class PDFBookLoader {
    */
   async renderPageToCanvas(pageNumber, canvas, displayWidth, displayHeight) {
     if (!this.pdfDoc || pageNumber < 1 || pageNumber > this.numPages || !canvas) return;
+    if (canvas.tagName === 'IMG') return this.renderPageToImage(pageNumber, canvas, displayWidth, displayHeight);
 
     // Si ya está renderizada con buena resolución y el canvas tiene contenido, evitar trabajo duplicado
     const cacheKey = `${pageNumber}-${Math.round(displayWidth)}-${Math.round(displayHeight)}-${this.getOptimalDpr()}`;
@@ -372,9 +486,7 @@ class PDFBookLoader {
         this.canvasCache.set(canvas, cacheKey);
         this.pageCache.set(pageNumber, page);
       } catch (err) {
-        if (err.name !== 'RenderingCancelledException') {
-          console.error(`Error al renderizar página ${pageNumber}:`, err);
-        }
+        throw err;
       } finally {
         this.renderingQueue.delete(canvas);
         this.releaseRenderSlot();

@@ -23,7 +23,7 @@ Un visor web inmersivo de documentos PDF diseñado exclusivamente para simular l
   - Escala fija para pantallas táctiles: pellizco, doble toque y rueda no amplían el libro.
 - **Rendimiento y Nitidez (HiDPI / Retina)**:
   - Renderizado vectorial de alta resolución con PDF.js respetando colores y calidad original.
-  - Carga progresiva y precarga en segundo plano de páginas adyacentes para una respuesta inmediata.
+  - Descarga paralela y preparación completa de las páginas antes de abrir el libro. Cada página se guarda como PNG sin pérdida a la resolución HiDPI del visor, para no volver a interpretar el PDF al girar hojas.
 - **Sin Dependencias de Servidor**:
   - 100% estático (HTML, CSS, JS). Puede ejecutarse localmente, en GitHub Pages o Cloudflare Pages sin costes ni APIs de pago.
 
@@ -90,4 +90,8 @@ La iluminación y los reflejos se generan con CSS; el PDF conserva sus bytes ori
 
 En HTTPS, el visor guarda los fragmentos del PDF en CacheStorage para reutilizarlos al recargar. Solo consulta el manifiesto pequeño para detectar cambios; una versión nueva del PDF usa otras URLs y no se confunde con la anterior. El indicador distingue entre descargar y abrir la copia guardada. Si el almacenamiento está bloqueado o lleno, continúa por la red. El navegador puede borrar esta copia al limpiar los datos del sitio o recuperar espacio.
 
-En equipos que indican hasta 4 GB de memoria o hasta 4 procesadores lógicos, el visor renderiza una página a la vez y conserva menos páginas alejadas. Los lienzos sin usar ocupan 1×1 píxel y las páginas cercanas se preparan bajo demanda; se mantienen la misma resolución HiDPI, los efectos visuales y los bytes del PDF. Se conserva el máximo de 32 descargas simultáneas.
+La primera apertura prepara todas las páginas como PNG sin pérdida antes de habilitar el libro, mostrando el progreso. Guarda las páginas preparadas en el dispositivo con una clave que incluye la versión del PDF, el tamaño del visor y la resolución HiDPI. Las recargas reutilizan esos PNG; si cambia la pantalla, prepara la resolución nueva. Se conservan el PDF original y las 32 descargas simultáneas.
+
+Durante la lectura se muestran imágenes preparadas y el navegador administra su memoria decodificada. El visor nunca vacía ni reduce a 1×1 las imágenes de las hojas. Los lienzos temporales usados durante la preparación se liberan al terminar cada página. Un giro en curso no puede ser interrumpido por otro. El control táctil utiliza Pointer Events para evitar dobles giros por eventos de ratón emulados; también admite las flechas izquierda y derecha del teclado. La resolución principal de prueba es Full HD (1920×1080).
+
+`npm run test:browser` ejecuta una prueba local de Chrome: giros rápidos, toque, deslizamiento, flechas, reutilización de páginas preparadas y limpieza del motor al redimensionar. Requiere Playwright disponible; `BROWSER_EXECUTABLE` permite indicar el navegador. Las capturas de comprobación se guardan en `tmp/`.

@@ -125,7 +125,7 @@
 
       pageDiv.innerHTML = `
         <div class="page-content">
-          <canvas class="page-canvas" id="canvas-page-${i}" width="1" height="1"></canvas>
+          <img class="page-canvas" id="canvas-page-${i}" alt="Página ${i}" draggable="false" decoding="async">
           <div class="page-spine-shadow" aria-hidden="true"></div>
           <div class="page-outer-edge" aria-hidden="true"></div>
           ${coverDecorations}
@@ -166,7 +166,7 @@
         if (generation === preloadGeneration && !isFlipping && currentPage === lastKnownPageIndex) {
           window.pdfBookLoader.evictDistantPages(currentPage + 1);
         }
-      })();
+      })().catch(error => console.warn('No se pudo preparar el siguiente pliego:', error));
     }, 350);
   }
 
@@ -340,6 +340,7 @@
 
       await Promise.allSettled(window.pdfBookLoader.renderingQueue.values());
       window.pdfBookLoader.renderedPages.clear();
+      window.pdfBookLoader.releasePreparedImages();
 
       // 5. Crear elementos DOM para cada página dentro de #book
       buildPageElements(pdfMeta.numPages, dimensions);
@@ -362,8 +363,8 @@
         startZIndex: 3,
         autoSize: false,
         clickEventForward: true,
-        useMouseEvents: true,
-        showPageCorners: true,
+        useMouseEvents: false,
+        showPageCorners: false,
         swipeDistance: 30,
         mobileScrollSupport: false
       });
@@ -375,7 +376,7 @@
 
       pageFlipInstance.on('changeState', (e) => {
         if (e.data === 'user_fold' || e.data === 'fold_corner') {
-          isFlipping = true;
+          isFlipping = e.data === 'user_fold';
           if (window.paperSound) {
             window.paperSound.playCornerFold();
           }
@@ -400,11 +401,18 @@
 
 
 
-        renderSpread(currentPage);
+        renderSpread(currentPage).catch(error => console.warn('No se pudo mostrar el pliego:', error));
         scheduleNextPagesPreload(currentPage);
       });
 
-      // Ensure the visible pages are painted before revealing the book.
+      // Prepare every lossless page before exposing any reading interaction.
+      for (let page = 1; page <= pdfMeta.numPages; page++) {
+        if (loaderStatusText) loaderStatusText.textContent = `Preparando páginas... ${page} / ${pdfMeta.numPages}`;
+        if (loaderProgressBar) loaderProgressBar.style.width = `${Math.round(page / pdfMeta.numPages * 100)}%`;
+        await window.pdfBookLoader.preparePageImage(page, document.getElementById(`canvas-page-${page}`), bookConfig.pageWidth, bookConfig.pageHeight);
+      }
+
+      // Decode the current and neighboring spreads before enabling gestures.
       const initialIndex = lastKnownPageIndex || 0;
       await renderSpread(initialIndex);
       if (!window.pdfBookLoader.isPageRendered(initialIndex + 1, bookConfig.pageWidth)) {
@@ -421,9 +429,20 @@
       if (pageElements.length > 0) {
         pageFlipInstance.loadFromHTML(pageElements);
       }
+      pageFlipInstance.beforeFlip = (direction, indices, kind) => {
+        const ready = indices.every(index => {
+          const image = document.getElementById(`canvas-page-${index + 1}`);
+          return image && image.complete && image.naturalWidth > 0;
+        });
+        if (!ready && kind === 'flip') {
+          const target = direction === 0 ? indices[indices.length - 2] ?? indices[indices.length - 1] : indices[indices.length - 1];
+          prepareTurn(Math.max(0, target), () => direction === 0 ? pageFlipInstance.flipNext() : pageFlipInstance.flipPrev());
+        }
+        return ready;
+      };
 
       // 9. Renderizar pliego actual
-      renderSpread(lastKnownPageIndex || 0);
+      await renderSpread(lastKnownPageIndex || 0);
 
       // 10. Descartar cargador
       dismissLoader();
@@ -457,8 +476,11 @@
     navigationPending = true;
     const generation = preloadGeneration;
     try {
+      await renderSpread(lastKnownPageIndex);
       await renderSpread(targetIndex);
       if (generation === preloadGeneration && isBookLoaded && !isFlipping) action();
+    } catch (error) {
+      console.warn('La página actual se conserva porque la siguiente no está lista:', error);
     } finally {
       navigationPending = false;
     }
@@ -600,6 +622,71 @@
     }, { passive: true });
   }
 
+  // One Pointer Events path for touchscreens, pens and mice. Native mouse/touch
+  // handlers are disabled so a compatibility mouse event cannot turn twice.
+  function setupBookPointerInput() {
+    let gesture = null;
+    const contacts = new Set();
+    const point = event => {
+      const bounds = pageFlipInstance.getUI().getDistElement().getBoundingClientRect();
+      return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    };
+    const cancel = () => {
+      if (gesture && pageFlipInstance) {
+        pageFlipInstance.userStop(gesture.last, true);
+        if (pageFlipInstance.getState() === 'user_fold') pageFlipInstance.getFlipController().stopMove();
+      }
+      gesture = null;
+    };
+    bookWrapper.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'touch') contacts.add(event.pointerId);
+      if (contacts.size > 1) { cancel(); return; }
+      if (event.button !== 0 || gesture || !isBookLoaded || !pageFlipInstance || isFlipping || navigationPending) return;
+      event.preventDefault();
+      const token = { id: event.pointerId, start: point(event), last: point(event), started: false, time: performance.now() };
+      gesture = token;
+      try { bookWrapper.setPointerCapture(event.pointerId); } catch (error) {}
+      const next = bookConfig.isMobilePortrait || lastKnownPageIndex === 0 ? lastKnownPageIndex + 1 : lastKnownPageIndex + 2;
+      const prev = Math.max(0, lastKnownPageIndex - (bookConfig.isMobilePortrait ? 1 : 2));
+      Promise.all([renderSpread(lastKnownPageIndex), renderSpread(next), renderSpread(prev)]).then(() => {
+        if (gesture !== token || isFlipping || !isBookLoaded) return;
+        token.started = true;
+        pageFlipInstance.startUserTouch(token.start);
+        if (Math.hypot(token.last.x - token.start.x, token.last.y - token.start.y) > 6) pageFlipInstance.userMove(token.last, true);
+      }).catch(error => { if (gesture === token) cancel(); console.warn('No se pudo preparar el gesto:', error); });
+    }, { passive: false });
+    window.addEventListener('pointermove', event => {
+      if (!gesture || gesture.id !== event.pointerId || !pageFlipInstance) return;
+      gesture.last = point(event);
+      if (gesture.started) pageFlipInstance.userMove(gesture.last, true);
+    }, { passive: true });
+    window.addEventListener('pointerup', event => {
+      contacts.delete(event.pointerId);
+      if (!gesture || gesture.id !== event.pointerId || !pageFlipInstance) return;
+      const token = gesture;
+      gesture = null;
+      const end = point(event);
+      const dx = end.x - token.start.x;
+      const dy = Math.abs(end.y - token.start.y);
+      const swipe = Math.abs(dx) >= 35 && dy < Math.max(100, Math.abs(dx)) && performance.now() - token.time < 650;
+      if (token.started) {
+        pageFlipInstance.userStop(end, swipe);
+        if (swipe) {
+          currentFlipDirection = dx < 0 ? 'forward' : 'backward';
+          if (dx < 0) pageFlipInstance.flipNext();
+          else pageFlipInstance.flipPrev();
+        }
+      } else {
+        const rect = pageFlipInstance.getRender().getRect();
+        const bookPoint = pageFlipInstance.getRender().convertToBook(end);
+        if (swipe ? dx < 0 : bookConfig.isMobilePortrait || bookPoint.x >= rect.pageWidth) flipNextSafely();
+        else flipPrevSafely();
+      }
+    });
+    window.addEventListener('pointercancel', event => { contacts.delete(event.pointerId); cancel(); });
+    window.addEventListener('blur', () => { contacts.clear(); cancel(); });
+  }
+
   /**
    * Arrastrar y soltar un PDF alternativo
    */
@@ -674,6 +761,7 @@
     setupKeyboardNavigation();
     setupEdgeClickZones();
     setupTouchSafety();
+    setupBookPointerInput();
     setupDragAndDrop();
     setupResizeHandler();
     setupStudioLight();

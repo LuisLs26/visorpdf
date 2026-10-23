@@ -9,3 +9,13 @@ send PDF rendering to the temporary copy. Keep this patch when replacing the lib
 `UI.cancelTouch()` clears pending single-finger gestures when starting a pinch or
 receiving `touchcancel`. This also cancels the delayed touch-start timer's effect,
 so finishing a pinch cannot accidentally turn a page on a large touch display.
+
+`Flip.flip()` and `fold()` ignore attempts to interrupt an active flip. Before
+creating a flip, `start()` calls the optional `app.beforeFlip(direction, indices,
+inputKind)` readiness hook. A failed readiness check leaves the current spread
+visible instead of animating blank pages.
+
+`Render.stop()` cancels its animation frame, and `PageFlip.destroy()` calls it.
+Destroyed books must not leave permanent rendering loops after window resizes.
+`UI.destroy()` always removes its resize handler, including when native input
+handlers are disabled in favor of the viewer's unified Pointer Events control.

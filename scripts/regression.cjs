@@ -176,5 +176,17 @@ module.exports = async function regressions() {
   vm.runInNewContext(`(function(){${cancelMethod}}).call(touchUI)`, { touchUI });
   assert.equal(touchUI.touchPoint, null);
   assert.equal(stops, 1, 'Starting a pinch must cancel delayed page gestures');
+  const flipStart = vendor.indexOf('flip(t){if("flipping"===this.state)');
+  const flipMethod = vendor.slice(flipStart + 'flip(t){'.length, vendor.indexOf('}start(t,', flipStart));
+  const busyFlip = { state: 'flipping', app: { getSettings: () => { throw new Error('An active flip must not restart'); } } };
+  vm.runInNewContext(`(function(t){${flipMethod}}).call(busyFlip,{})`, { busyFlip });
+  const stopStart = vendor.indexOf('stop(){this.stopped=');
+  const stopMethod = vendor.slice(stopStart + 'stop(){'.length, vendor.indexOf('}startAnimation(', stopStart));
+  const renderer = { stopped: false, frameId: 123, animation: {} };
+  let cancelled = null;
+  vm.runInNewContext(`(function(){${stopMethod}}).call(renderer)`, { renderer, cancelAnimationFrame: id => { cancelled = id; } });
+  assert.equal(cancelled, 123);
+  assert.equal(renderer.stopped, true);
+  assert.equal(renderer.animation, null, 'Destroyed books must release the animation loop');
   console.log('OK: libros de 1/39/40 páginas, caché por canvas, renders concurrentes, HiDPI, tamaños móvil/escritorio, teclado, bloqueo de zoom, audio y páginas clonadas.');
 };
